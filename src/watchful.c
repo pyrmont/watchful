@@ -35,8 +35,16 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     watchful_backend_t *backend;
     if (!janet_cstrcmp(choice, "fse")) {
         backend = &watchful_fse;
+    } else if (!janet_cstrcmp(choice, "inotify")) {
+        backend = &watchful_inotify;
     } else {
-        janet_panic("backend doesn't match");
+        janet_panicf("backend :%s not found", choice);
+    }
+
+    if (backend->setup == NULL ||
+        backend->watch == NULL ||
+        backend->teardown == NULL) {
+        janet_panicf("backend :%s is not supported on this platform", choice);
     }
 
     JanetFunction *cb = janet_getfunction(argv, 1);
