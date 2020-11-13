@@ -3,6 +3,7 @@
 
 /* General */
 #include <string.h>
+#include <time.h>
 
 /* POSIX */
 #include <pthread.h>

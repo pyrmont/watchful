@@ -27,6 +27,30 @@ static const JanetAbstractType watchful_monitor_type = {
 
 /* C Functions */
 
+static int watchful_option_count(JanetTuple head) {
+    size_t head_size = janet_tuple_length(head);
+
+    if (head_size > 1 && !janet_cstrcmp(janet_getkeyword(head, 1), "count"))
+        return janet_getinteger(head, 2);
+
+    if (head_size > 3 && !janet_cstrcmp(janet_getkeyword(head, 3), "count"))
+        return janet_getinteger(head, 4);
+
+    return INFINITY;
+}
+
+static double watchful_option_elapse(JanetTuple head) {
+    size_t head_size = janet_tuple_length(head);
+
+    if (head_size > 1 && !janet_cstrcmp(janet_getkeyword(head, 1), "elapse"))
+        return janet_getnumber(head, 2);
+
+    if (head_size > 3 && !janet_cstrcmp(janet_getkeyword(head, 3), "elapse"))
+        return janet_getnumber(head, 4);
+
+    return INFINITY;
+}
+
 static Janet cfun_create(int32_t argc, Janet *argv) {
     janet_arity(argc, 2, 3);
 
@@ -62,12 +86,23 @@ static Janet cfun_destroy(int32_t argc, Janet *argv) {
 static Janet cfun_watch(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 2);
 
-    JanetTuple settings = janet_gettuple(argv, 0);
+    JanetTuple head = janet_gettuple(argv, 0);
     JanetFunction *cb = janet_getfunction(argv, 1);
 
-    watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(settings, 0, &watchful_monitor_type);
+    size_t head_size = janet_tuple_length(head);
+
+    if (head_size == 0) {
+        janet_panicf("missing path monitor");
+    } else if (head_size % 2 == 0) {
+        janet_panicf("missing option value");
+    }
+
+    watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(head, 0, &watchful_monitor_type);
     watchful_stream_t *stream = (watchful_stream_t *)malloc(sizeof(watchful_stream_t));
     stream->wm = wm;
+
+    int count = watchful_option_count(head);
+    double elapse = watchful_option_elapse(head);
 
     JanetCFunction cfun = janet_unwrap_cfunction(janet_resolve_core("thread/current"));
     stream->parent = (JanetThread *)janet_unwrap_abstract(cfun(0, NULL));
@@ -75,11 +110,19 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
     wm->backend->setup(stream);
     printf("Setup complete\n");
 
-    Janet out;
-    while (true) {
-        int error = janet_thread_receive(&out, 5.0);
-        if (error) break;
-        janet_pcall(cb, 0, NULL, &out, NULL);
+    int counted = 0;
+    double elapsed = 0.0;
+    time_t start = time(0);
+    while (counted < count && elapsed < elapse) {
+        double timeout = (elapse == INFINITY) ? INFINITY : elapse;
+        Janet out;
+        int error = janet_thread_receive(&out, timeout);
+        if (!error) {
+            janet_pcall(cb, 0, NULL, &out, NULL);
+        }
+        counted++;
+        time_t now = time(0);
+        elapsed = (double)now - (double)start;
     }
 
     wm->backend->teardown(stream);

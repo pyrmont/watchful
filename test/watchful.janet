@@ -13,5 +13,5 @@
 
 (def path (watchful/create :fse "test"))
 
-(watchful/watch [path :count 1]
+(watchful/watch [path :count 1 :elapse 5.0]
                 (fn [] (print "Hello world!")))
