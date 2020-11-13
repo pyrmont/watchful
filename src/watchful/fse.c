@@ -5,7 +5,6 @@
 watchful_backend_t watchful_fse = {
     .name = "fse",
     .setup = NULL,
-    .watch = NULL,
     .teardown = NULL,
 };
 
@@ -19,17 +18,11 @@ static void callback(
     const FSEventStreamEventFlags eventFlags[],
     const FSEventStreamEventId eventIds[])
 {
-	JanetFunction *cb = (JanetFunction *)clientCallBackInfo;
-	Janet argv[] = {};
-	Janet out = janet_wrap_nil();
-	JanetFiber *f = NULL;
-	JanetSignal sig = janet_pcall(cb, 0, argv, &out, &f);
-	if (sig != JANET_SIGNAL_OK && sig != JANET_SIGNAL_YIELD)
-		janet_printf("top level signal(%d): %v\n", sig, out);
+    JanetThread *parent = (JanetThread *)clientCallBackInfo;
+    janet_thread_send(parent, janet_wrap_integer(5), 10);
 
     /* char **paths = eventPaths; */
 
-    /* printf("Callback called\n"); */
     /* for (size_t i=0; i < numEvents; i++) { */
     /*     /1* int count; *1/ */
     /*     /1* flags are unsigned long, IDs are uint64_t *1/ */
@@ -37,19 +30,54 @@ static void callback(
     /* } */
 }
 
-static int setup(watchful_monitor_t *wm) {
+static void *loop_runner(void *arg) {
+    watchful_stream_t *stream = arg;
+
+    stream->loop = CFRunLoopGetCurrent();
+
+    FSEventStreamScheduleWithRunLoop(
+        stream->ref,
+        stream->loop,
+        kCFRunLoopDefaultMode
+    );
+
+    FSEventStreamStart(stream->ref);
+
+    printf("Entering the run loop...\n");
+    CFRunLoopRun();
+    printf("Leaving the run loop...\n");
+
+    stream->loop = NULL;
+    return NULL;
+}
+
+static int start_loop(watchful_stream_t *stream) {
+    int error = 0;
+
+    pthread_attr_t attr;
+    error = pthread_attr_init(&attr);
+    if (error) return 1;
+
+    error = pthread_create(&stream->thread, &attr, loop_runner, stream);
+    if (error) return 1;
+
+    pthread_attr_destroy(&attr);
+    return 0;
+}
+
+static int setup(watchful_stream_t *stream) {
     printf("Setting up...\n");
 
     FSEventStreamContext stream_context;
     memset(&stream_context, 0, sizeof(stream_context));
-    stream_context.info = wm->cb;
+    stream_context.info = stream->parent;
 
-    CFStringRef path = CFStringCreateWithCString(NULL, (const char *)wm->path, kCFStringEncodingUTF8);
+    CFStringRef path = CFStringCreateWithCString(NULL, (const char *)stream->wm->path, kCFStringEncodingUTF8);
 	CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
 
 	CFAbsoluteTime latency = 1.0; /* Latency in seconds */
 
-    FSEventStreamRef stream = FSEventStreamCreate(
+    stream->ref = FSEventStreamCreate(
 		NULL,
         &callback,
         &stream_context,
@@ -59,68 +87,20 @@ static int setup(watchful_monitor_t *wm) {
         kFSEventStreamCreateFlagNone /* Flags explained in reference */
     );
 
-    wm->fse_stream = stream;
-
-    return 0;
-}
-
-static void *loop_runner(void *arg) {
-    watchful_monitor_t *wm = arg;
-
-    wm->fse_loop = CFRunLoopGetCurrent();
-
-    FSEventStreamScheduleWithRunLoop(
-        wm->fse_stream,
-        wm->fse_loop,
-        kCFRunLoopDefaultMode
-    );
-
-    FSEventStreamStart(wm->fse_stream);
-
-    janet_init();
-
-    printf("Entering the run loop...\n");
-    CFRunLoopRun();
-    printf("Leaving the run loop...\n");
-
-    janet_deinit();
-
-    wm->fse_loop = NULL;
-    return NULL;
-}
-
-static int start_loop(watchful_monitor_t *wm) {
-    int error = 0;
-
-    pthread_attr_t attr;
-    error = pthread_attr_init(&attr);
+    int error = start_loop(stream);
     if (error) return 1;
 
-    error = pthread_create(&wm->thread, &attr, loop_runner, wm);
-    if (error) return 1;
-
-    pthread_attr_destroy(&attr);
     return 0;
 }
 
-static int watch(watchful_monitor_t *wm) {
-    printf("Watching...\n");
-
-    start_loop(wm);
-
-    return 0;
-}
-
-static int teardown(watchful_monitor_t *wm) {
+static int teardown(watchful_stream_t *stream) {
     printf("Tearing down...\n");
 
-    FSEventStreamStop(wm->fse_stream);
-    FSEventStreamInvalidate(wm->fse_stream);
-    FSEventStreamRelease(wm->fse_stream);
+    FSEventStreamStop(stream->ref);
+    FSEventStreamInvalidate(stream->ref);
+    FSEventStreamRelease(stream->ref);
 
-    CFRunLoopStop(wm->fse_loop);
-
-    wm->fse_stream = NULL;
+    CFRunLoopStop(stream->loop);
 
     return 0;
 }
@@ -128,7 +108,6 @@ static int teardown(watchful_monitor_t *wm) {
 watchful_backend_t watchful_fse = {
     .name = "fse",
     .setup = setup,
-    .watch = watch,
     .teardown = teardown,
 };
 

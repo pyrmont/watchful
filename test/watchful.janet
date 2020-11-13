@@ -11,10 +11,7 @@
 
 (defn cb [] (print "The number is " x))
 
-(def monitor (watchful/create :fse cb "test"))
+(def path (watchful/create :fse "test"))
 
-(watchful/watch monitor)
-
-(os/sleep 5)
-
-(watchful/destroy monitor)
+(watchful/watch [path :count 1]
+                (fn [] (print "Hello world!")))
