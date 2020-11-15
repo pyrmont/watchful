@@ -18,16 +18,22 @@ static void callback(
     const FSEventStreamEventFlags eventFlags[],
     const FSEventStreamEventId eventIds[])
 {
+    char **paths = (char **)eventPaths;
+
     JanetThread *parent = (JanetThread *)clientCallBackInfo;
-    janet_thread_send(parent, janet_wrap_integer(5), 10);
 
-    /* char **paths = eventPaths; */
+    for (size_t i = 0; i < numEvents; i++) {
+        watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
+        printf("The updated path is %s\n", paths[i]);
 
-    /* for (size_t i=0; i < numEvents; i++) { */
-    /*     /1* int count; *1/ */
-    /*     /1* flags are unsigned long, IDs are uint64_t *1/ */
-    /*     printf("Change %llu in %s, flags %u\n", eventIds[i], paths[i], eventFlags[i]); */
-    /* } */
+        event->type = 5;
+
+        size_t path_len = strlen(paths[0]) + 1;
+        event->path = (char *)malloc(path_len);
+        memcpy(event->path, paths[0], path_len);
+
+        janet_thread_send(parent, janet_wrap_pointer(event), 10);
+    }
 }
 
 static void *loop_runner(void *arg) {

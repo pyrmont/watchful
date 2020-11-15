@@ -116,9 +116,13 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
     while (counted < count && elapsed < elapse) {
         double timeout = (elapse == INFINITY) ? INFINITY : elapse;
         Janet out;
-        int error = janet_thread_receive(&out, timeout);
-        if (!error) {
-            janet_pcall(cb, 0, NULL, &out, NULL);
+        int timed_out = janet_thread_receive(&out, timeout);
+        if (!timed_out) {
+            watchful_event_t *event = (watchful_event_t *)janet_unwrap_pointer(out);
+            Janet tup[2] = {janet_cstringv(event->path), janet_wrap_integer(event->type)};
+            JanetTuple args = janet_tuple_n(tup, 2);
+            janet_pcall(cb, 2, (Janet *)args, &out, NULL);
+            free(event);
         }
         counted++;
         time_t now = time(0);

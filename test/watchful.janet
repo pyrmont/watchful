@@ -9,9 +9,8 @@
 
 (def x 5)
 
-(defn cb [] (print "The number is " x))
+(defn cb [path event-type] (print "The changed path is " path))
 
 (def path (watchful/create :fse "test"))
 
-(watchful/watch [path :count 1 :elapse 5.0]
-                (fn [] (print "Hello world!")))
+(watchful/watch [path :count 1 :elapse 5.0] cb)

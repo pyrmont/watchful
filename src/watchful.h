@@ -50,6 +50,11 @@ typedef struct watchful_stream_t {
 #endif
 } watchful_stream_t;
 
+typedef struct watchful_event_t {
+  int type;
+  char *path;
+} watchful_event_t;
+
 /* Externs */
 
 extern watchful_backend_t watchful_fse;
