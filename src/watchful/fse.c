@@ -79,12 +79,12 @@ static int setup(watchful_stream_t *stream) {
     stream_context.info = stream->parent;
 
     CFStringRef path = CFStringCreateWithCString(NULL, (const char *)stream->wm->path, kCFStringEncodingUTF8);
-	CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
+    CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
 
-	CFAbsoluteTime latency = 1.0; /* Latency in seconds */
+    CFAbsoluteTime latency = 1.0; /* Latency in seconds */
 
     stream->ref = FSEventStreamCreate(
-		NULL,
+        NULL,
         &callback,
         &stream_context,
         pathsToWatch,
