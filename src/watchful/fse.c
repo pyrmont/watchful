@@ -24,7 +24,6 @@ static void callback(
 
     for (size_t i = 0; i < numEvents; i++) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
-        printf("The updated path is %s\n", paths[i]);
 
         event->type = 5;
 
@@ -90,7 +89,8 @@ static int setup(watchful_stream_t *stream) {
         pathsToWatch,
         kFSEventStreamEventIdSinceNow, /* Or a previous event ID */
         latency,
-        kFSEventStreamCreateFlagNone /* Flags explained in reference */
+        /* kFSEventStreamCreateFlagNone /1* Flags explained in reference *1/ */
+        kFSEventStreamCreateFlagFileEvents
     );
 
     int error = start_loop(stream);
