@@ -52,23 +52,28 @@ static double watchful_option_elapse(JanetTuple head) {
 }
 
 static Janet cfun_create(int32_t argc, Janet *argv) {
-    janet_arity(argc, 2, 3);
+    janet_arity(argc, 1, 3);
 
-    const uint8_t *choice = janet_getkeyword(argv, 0);
+    /* Need to know backend first */
     watchful_backend_t *backend;
-    if (!janet_cstrcmp(choice, "fse")) {
-        backend = &watchful_fse;
-    } else if (!janet_cstrcmp(choice, "inotify")) {
-        backend = &watchful_inotify;
+    if (argc == 3) {
+        const uint8_t *choice = janet_getkeyword(argv, 2);
+        if (!janet_cstrcmp(choice, "fse")) {
+            backend = &watchful_fse;
+        } else if (!janet_cstrcmp(choice, "inotify")) {
+            backend = &watchful_inotify;
+        } else {
+            janet_panicf("backend :%s not found", choice);
+        }
+
+        if (backend->setup == NULL || backend->teardown == NULL) {
+            janet_panicf("backend :%s is not supported on this platform", choice);
+        }
     } else {
-        janet_panicf("backend :%s not found", choice);
+        backend = &watchful_default_backend;
     }
 
-    if (backend->setup == NULL || backend->teardown == NULL) {
-        janet_panicf("backend :%s is not supported on this platform", choice);
-    }
-
-    const uint8_t *path = janet_getstring(argv, 1);
+    const uint8_t *path = janet_getstring(argv, 0);
 
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_abstract(&watchful_monitor_type, sizeof(watchful_monitor_t));
     wm->backend = backend;
@@ -122,6 +127,7 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
             Janet tup[2] = {janet_cstringv(event->path), janet_wrap_integer(event->type)};
             JanetTuple args = janet_tuple_n(tup, 2);
             janet_pcall(cb, 2, (Janet *)args, &out, NULL);
+            /* TODO: Catch the output and ensure memory is all freed */
             free(event);
         }
         counted++;
@@ -141,15 +147,22 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
 
 static const JanetReg cfuns[] = {
     {"create", cfun_create,
-     "(watchful/create cb path &opt excludes)\n\n"
-     "Create a monitor for `path`, excluding `excludes`"},
+     "(watchful/create path &opt excludes backend)\n\n"
+     "Create a monitor for `path`\n\n"
+     "The monitor can optionally be created with `excludes`, an array or tuple "
+     "of strings that are paths that the monitor will exclude, and `backend`, "
+     "a keyword representing the API that the monitor will use (`:fse`, "
+     "`:inotify`). If a backend is selected that is not supported, the function "
+     "will panic."
+    },
     {"watch", cfun_watch,
      "(watchful/watch [monitor & options] cb)\n\n"
-     "Watch `monitor` and execute the function `cb` on changes"
+     "Watch `monitor` and execute the function `cb` on changes\n\n"
+     "The watch can optionally include `:count <integer>` and/or `:elapse "
+     "<double>`. The integer after `:count` is the number of changes that "
+     "should be monitored before the watch terminates. The double after "
+     "`:elapse` is the number of seconds to wait until the watch terminates."
     },
-    {"destroy", cfun_destroy,
-     "(watchful/destroy monitor)\n\n"
-     "Destroy the monitor"},
     {NULL, NULL, NULL}
 };
 

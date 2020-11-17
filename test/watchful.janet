@@ -11,6 +11,6 @@
 
 (defn cb [path event-type] (print "The changed path is " path))
 
-(def path (watchful/create :fse "test"))
+(def path (watchful/create "test" []))
 
 (watchful/watch [path :count 1 :elapse 5.0] cb)

@@ -60,4 +60,10 @@ typedef struct watchful_event_t {
 extern watchful_backend_t watchful_fse;
 extern watchful_backend_t watchful_inotify;
 
+#ifdef MACOS
+#define watchful_default_backend watchful_fse
+#elif LINUX
+#define watchful_default_backend watchful_inotify
+#endif
+
 #endif
