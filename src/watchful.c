@@ -82,12 +82,6 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     return janet_wrap_abstract(wm);
 }
 
-static Janet cfun_destroy(int32_t argc, Janet *argv) {
-    janet_fixarity(argc, 1);
-
-    return janet_wrap_nil();
-}
-
 static Janet cfun_watch(int32_t argc, Janet *argv) {
     janet_fixarity(argc, 2);
 
