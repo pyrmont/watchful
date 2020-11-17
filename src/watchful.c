@@ -36,7 +36,7 @@ static int watchful_option_count(JanetTuple head) {
     if (head_size > 3 && !janet_cstrcmp(janet_getkeyword(head, 3), "count"))
         return janet_getinteger(head, 4);
 
-    return INFINITY;
+    return (int)INFINITY; /* No real infinity for ints */
 }
 
 static double watchful_option_elapse(JanetTuple head) {
@@ -55,7 +55,7 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     janet_arity(argc, 1, 3);
 
     /* Need to know backend first */
-    watchful_backend_t *backend;
+    watchful_backend_t *backend = NULL;
     if (argc == 3) {
         const uint8_t *choice = janet_getkeyword(argv, 2);
         if (!janet_cstrcmp(choice, "fse")) {
@@ -65,12 +65,12 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
         } else {
             janet_panicf("backend :%s not found", choice);
         }
-
-        if (backend->setup == NULL || backend->teardown == NULL) {
-            janet_panicf("backend :%s is not supported on this platform", choice);
-        }
     } else {
         backend = &watchful_default_backend;
+    }
+
+    if (backend->setup == NULL || backend->teardown == NULL) {
+        janet_panicf("backend :%s is not supported on this platform", backend->name);
     }
 
     const uint8_t *path = janet_getstring(argv, 0);
