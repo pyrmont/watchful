@@ -8,7 +8,14 @@
 /* POSIX */
 #include <pthread.h>
 
-#ifdef MACOS
+#ifdef LINUX
+/* Linux */
+#include <signal.h>
+#include <unistd.h>
+#include <sys/inotify.h>
+#include <sys/select.h>
+#include <sys/signalfd.h>
+#elif MACOS
 /* macOS */
 #include <CoreServices/CoreServices.h>
 #endif
@@ -44,9 +51,11 @@ typedef struct watchful_stream_t {
   watchful_thread_t thread;
   JanetThread *parent;
 
-#ifdef MACOS
-    FSEventStreamRef ref;
-    CFRunLoopRef loop;
+#ifdef LINUX
+  int notifier;
+#elif MACOS
+  FSEventStreamRef ref;
+  CFRunLoopRef loop;
 #endif
 } watchful_stream_t;
 
@@ -60,10 +69,10 @@ typedef struct watchful_event_t {
 extern watchful_backend_t watchful_fse;
 extern watchful_backend_t watchful_inotify;
 
-#ifdef MACOS
-#define watchful_default_backend watchful_fse
-#elif LINUX
+#ifdef LINUX
 #define watchful_default_backend watchful_inotify
+#elif MACOS
+#define watchful_default_backend watchful_fse
 #endif
 
 #endif

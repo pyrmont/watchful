@@ -18,7 +18,7 @@
    ["-mmacosx-version-min=10.12" "-DMACOS=1" "-framework" "CoreServices" "-Wno-unused-parameter" "-Wno-unused-command-line-argument"]
 
    :linux
-   ["-DLINUX=1" "-Wno-unused-parameter"]
+   ["-DLINUX=1" "-pthread" "-Wno-unused-parameter"]
 
    ["-Wno-unused-parameter"]))
 
