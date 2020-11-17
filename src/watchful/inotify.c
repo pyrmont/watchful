@@ -15,8 +15,8 @@ static void *loop_runner(void *arg) {
     watchful_stream_t *stream = arg;
 
     sigset_t mask;
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGUSR1);
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGUSR1);
     error = pthread_sigmask(SIG_BLOCK, &mask, NULL);
     if (error) return NULL;
 
