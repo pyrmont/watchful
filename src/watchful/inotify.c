@@ -17,8 +17,8 @@ static int handle_event(watchful_stream_t *stream) {
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
 
-	for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
-		notify_event = (const struct inotify_event *)ptr;
+    for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
+        notify_event = (const struct inotify_event *)ptr;
 
         /* Print event type */
         if (notify_event->mask & IN_MODIFY)
