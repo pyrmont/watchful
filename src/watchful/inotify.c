@@ -10,6 +10,15 @@ watchful_backend_t watchful_inotify = {
 
 #else
 
+static char *path_for_wd(watchful_stream_t *stream, int wd) {
+    for(size_t i = 0; i < stream->watch_num; i++) {
+        if (wd == stream->watches[i]->wd)
+            return (char *)stream->watches[i]->path;
+    }
+
+    return "";
+}
+
 static int handle_event(watchful_stream_t *stream) {
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
@@ -46,14 +55,15 @@ static int handle_event(watchful_stream_t *stream) {
 
         event->type = 5;
 
+        char *path = path_for_wd(stream, notify_event->wd);
         if (notify_event->mask & IN_ISDIR) {
-            size_t path_len = strlen((char *)stream->wm->path) + 1;
-            event->path = (char *)malloc(path_len);
-            memcpy(event->path, stream->wm->path, path_len);
+            size_t path_len = strlen(path) + 1;
+            event->path = (char *)malloc(sizeof(char) * path_len);
+            memcpy(event->path, path, path_len);
         } else {
-            size_t root_len = strlen((char *)stream->wm->path);
-            event->path = (char *)malloc(root_len + notify_event->len);
-            memcpy(event->path, stream->wm->path, root_len);
+            size_t root_len = strlen(path);
+            event->path = (char *)malloc(sizeof(char) * (root_len + notify_event->len));
+            memcpy(event->path, path, root_len);
             memcpy(event->path + root_len, notify_event->name, notify_event->len);
         }
 
@@ -116,6 +126,53 @@ static int start_loop(watchful_stream_t *stream) {
     return 0;
 }
 
+static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
+    printf("The number of watches is %ld\n", stream->watch_num);
+    if (stream->watch_num == 0) {
+        stream->watches = (watchful_watch_t **)malloc(sizeof(watchful_watch_t *));
+    } else {
+        watchful_watch_t **new_watches = (watchful_watch_t **)realloc(stream->watches, sizeof(*stream->watches) * (stream->watch_num + 1));
+        if (new_watches == NULL) return 1;
+        stream->watches = new_watches;
+    }
+    watchful_watch_t *new_watch = (watchful_watch_t *)malloc(sizeof(watchful_watch_t));
+    stream->watches[stream->watch_num++] = new_watch;
+
+    watchful_watch_t *watch = stream->watches[stream->watch_num - 1];
+    int events = IN_MODIFY | IN_MOVE | IN_ATTRIB | IN_DELETE;
+
+    printf("Adding watch to %s...\n", path);
+    watch->wd = inotify_add_watch(stream->fd, path, events);
+    if (watch->wd == -1) return 1;
+    printf("Watch added\n");
+
+    watch->path = (const uint8_t *)path;
+
+    if (dir == NULL) return 0;
+
+    int path_len = strlen(path);
+    struct dirent *entry;
+    while ((entry = readdir(dir))) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+
+        int name_len = strlen(entry->d_name);
+        char *child_path = (char *)malloc(sizeof(char) * (path_len + name_len + 2));
+        memcpy(child_path, path, path_len);
+        memcpy(child_path + path_len, entry->d_name, name_len);
+        child_path[path_len + name_len] = '/';
+        child_path[path_len + name_len + 1] = '\0';
+
+        DIR *dir = opendir(child_path);
+        if (dir == NULL) continue;
+
+        printf("Adding more watches...\n");
+        int error = add_watches(stream, child_path, dir);
+        if (error) return 1;
+    }
+
+    return 0;
+}
+
 static int setup(watchful_stream_t *stream) {
     printf("Setting up...\n");
     int error = 0;
@@ -123,8 +180,16 @@ static int setup(watchful_stream_t *stream) {
     stream->fd = inotify_init();
     if (stream->fd == -1) return 1;
 
-    stream->wd = inotify_add_watch(stream->fd, (const char *)stream->wm->path, IN_MODIFY | IN_MOVE | IN_ATTRIB | IN_DELETE);
-    if (stream->wd == -1) return 1;
+    stream->watch_num = 0;
+
+    int path_len = strlen((char *)stream->wm->path) + 1;
+    char *path = (char *)malloc(sizeof(char) * path_len);
+    memcpy(path, stream->wm->path, path_len);
+
+    DIR *dir = opendir(path);
+
+    error = add_watches(stream, path, dir);
+    if (error) return 1;
 
     error = start_loop(stream);
     if (error) return 1;
@@ -141,12 +206,16 @@ static int teardown(watchful_stream_t *stream) {
         pthread_join(stream->thread, NULL);
     }
 
-    error = inotify_rm_watch(stream->fd, stream->wd);
+    for (size_t i = 0; i < stream->watch_num; i++) {
+        inotify_rm_watch(stream->fd, stream->watches[i]->wd);
+        free(stream->watches[i]->path);
+        free(stream->watches[i]);
+    }
+
+    free(stream->watches);
+
     error = close(stream->fd);
     if (error) return 1;
-
-    stream->fd = 0;
-    stream->wd = 0;
 
     return 0;
 }

@@ -10,11 +10,14 @@
 
 #ifdef LINUX
 /* Linux */
+#include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/inotify.h>
 #include <sys/select.h>
 #include <sys/signalfd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #elif MACOS
 /* macOS */
 #include <CoreServices/CoreServices.h>
@@ -32,6 +35,7 @@ typedef pthread_t watchful_thread_t;
 struct watchful_monitor_t;
 struct watchful_backend_t;
 struct watchful_stream_t;
+struct watchful_watch_t;
 
 /* Types */
 
@@ -53,12 +57,20 @@ typedef struct watchful_stream_t {
 
 #ifdef LINUX
   int fd;
-  int wd;
+  size_t watch_num;
+  struct watchful_watch_t **watches;
 #elif MACOS
   FSEventStreamRef ref;
   CFRunLoopRef loop;
 #endif
 } watchful_stream_t;
+
+typedef struct watchful_watch_t {
+#ifdef LINUX
+  int wd;
+  const uint8_t *path;
+#endif
+} watchful_watch_t;
 
 typedef struct watchful_event_t {
   int type;
