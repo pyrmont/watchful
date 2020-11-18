@@ -208,7 +208,7 @@ static int teardown(watchful_stream_t *stream) {
 
     for (size_t i = 0; i < stream->watch_num; i++) {
         inotify_rm_watch(stream->fd, stream->watches[i]->wd);
-        free(stream->watches[i]->path);
+        free((char *)stream->watches[i]->path);
         free(stream->watches[i]);
     }
 
