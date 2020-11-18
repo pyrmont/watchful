@@ -57,14 +57,9 @@ static int handle_event(watchful_stream_t *stream) {
 
         char *path = path_for_wd(stream, notify_event->wd);
         if (notify_event->mask & IN_ISDIR) {
-            size_t path_len = strlen(path) + 1;
-            event->path = (char *)malloc(sizeof(char) * path_len);
-            memcpy(event->path, path, path_len);
+            event->path = watchful_clone_string(path);
         } else {
-            size_t root_len = strlen(path);
-            event->path = (char *)malloc(sizeof(char) * (root_len + notify_event->len));
-            memcpy(event->path, path, root_len);
-            memcpy(event->path + root_len, notify_event->name, notify_event->len);
+            event->path = watchful_extend_path(path, (char *)notify_event->name, 0);
         }
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
@@ -135,10 +130,9 @@ static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
         if (new_watches == NULL) return 1;
         stream->watches = new_watches;
     }
-    watchful_watch_t *new_watch = (watchful_watch_t *)malloc(sizeof(watchful_watch_t));
-    stream->watches[stream->watch_num++] = new_watch;
+    watchful_watch_t *watch = (watchful_watch_t *)malloc(sizeof(watchful_watch_t));
+    stream->watches[stream->watch_num++] = watch;
 
-    watchful_watch_t *watch = stream->watches[stream->watch_num - 1];
     int events = IN_MODIFY | IN_MOVE | IN_ATTRIB | IN_DELETE;
 
     printf("Adding watch to %s...\n", path);
@@ -146,27 +140,26 @@ static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
     if (watch->wd == -1) return 1;
     printf("Watch added\n");
 
-    watch->path = (const uint8_t *)path;
+    watch->path = (const uint8_t *)watchful_clone_string(path);
 
     if (dir == NULL) return 0;
 
-    int path_len = strlen(path);
     struct dirent *entry;
     while ((entry = readdir(dir))) {
         if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
 
-        int name_len = strlen(entry->d_name);
-        char *child_path = (char *)malloc(sizeof(char) * (path_len + name_len + 2));
-        memcpy(child_path, path, path_len);
-        memcpy(child_path + path_len, entry->d_name, name_len);
-        child_path[path_len + name_len] = '/';
-        child_path[path_len + name_len + 1] = '\0';
+        char *child_path = watchful_extend_path(path, entry->d_name, 1);
 
         DIR *dir = opendir(child_path);
-        if (dir == NULL) continue;
+        if (dir == NULL) {
+            free(child_path);
+            continue;
+        }
 
         printf("Adding more watches...\n");
         int error = add_watches(stream, child_path, dir);
+        free(child_path);
+        closedir(dir);
         if (error) return 1;
     }
 
@@ -182,13 +175,11 @@ static int setup(watchful_stream_t *stream) {
 
     stream->watch_num = 0;
 
-    int path_len = strlen((char *)stream->wm->path) + 1;
-    char *path = (char *)malloc(sizeof(char) * path_len);
-    memcpy(path, stream->wm->path, path_len);
-
+    char *path = watchful_clone_string((char *)stream->wm->path);
     DIR *dir = opendir(path);
-
     error = add_watches(stream, path, dir);
+    free(path);
+    closedir(dir);
     if (error) return 1;
 
     error = start_loop(stream);

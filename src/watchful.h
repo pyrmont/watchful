@@ -88,4 +88,8 @@ extern watchful_backend_t watchful_inotify;
 #define watchful_default_backend watchful_fse
 #endif
 
+/* Utility Functions */
+char *watchful_clone_string(char *src);
+char *watchful_extend_path(char *path, char *name, int is_dir);
+
 #endif

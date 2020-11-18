@@ -1,6 +1,30 @@
 #include "watchful.h"
 
 
+/* Utility Functions */
+
+char *watchful_clone_string(char *src) {
+    int src_len = strlen(src);
+    char *dest = (char *)malloc(sizeof(char) * (src_len + 1));
+    if (dest == NULL) return NULL;
+    memcpy(dest, src, src_len);
+    dest[src_len] = '\0';
+    return dest;
+}
+
+char *watchful_extend_path(char *path, char *name, int is_dir) {
+    int path_len = strlen(path);
+    int name_len = strlen(name);
+    int new_path_len = path_len + name_len + (is_dir ? 1 : 0);
+    char *new_path = (char *)malloc(sizeof(char) * (new_path_len + 1));
+    if (new_path == NULL) return NULL;
+    memcpy(new_path, path, path_len);
+    memcpy(new_path + path_len, name, name_len);
+    if (is_dir) new_path[new_path_len - 1] = '/';
+    new_path[new_path_len] = '\0';
+    return new_path;
+}
+
 /* Deinitialising */
 
 static int watchful_monitor_gc(void *p, size_t size) {
@@ -159,6 +183,7 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
             JanetTuple args = janet_tuple_n(tup, 2);
             janet_pcall(cb, 2, (Janet *)args, &out, NULL);
             /* TODO: Catch the output and ensure memory is all freed */
+            free(event->path);
             free(event);
         }
         counted++;
