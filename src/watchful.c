@@ -1,10 +1,12 @@
 #include "watchful.h"
 
+
 /* Deinitialising */
 
 static int watchful_monitor_gc(void *p, size_t size) {
     (void) size;
-    (void) p;
+    watchful_monitor_t *monitor = (watchful_monitor_t *)p;
+    if (monitor->path != NULL) free((uint8_t *)monitor->path);
     return 0;
 }
 
@@ -26,6 +28,38 @@ static const JanetAbstractType watchful_monitor_type = {
 };
 
 /* C Functions */
+
+static int watchful_copy_path(watchful_monitor_t *wm, const uint8_t *path, size_t max_len) {
+    size_t path_len = strlen((char *)path);
+
+    if (path_len > max_len) return 1;
+
+    char *buf = (char *)malloc(sizeof(char) * max_len);
+    size_t buf_len = 0;
+
+    if (path[0] == '/') {
+        memcpy(buf, path, path_len);
+        if (path[path_len - 1] == '/') path_len--;
+    } else {
+        getcwd(buf, max_len);
+        size_t cwd_len = strlen(buf);
+        buf[cwd_len] = '/';
+        buf_len = cwd_len + 1;
+        memcpy(buf + buf_len, path, path_len);
+    }
+
+    if (buf_len + path_len + 2 > max_len) {
+        free(buf);
+        return 1;
+    }
+
+    buf[buf_len + path_len] = '/';
+    buf[buf_len + path_len + 1] = '\0';
+    printf("The path being watched is %s\n", buf);
+
+    wm->path = (const uint8_t *)buf;
+    return 0;
+}
 
 static int watchful_option_count(JanetTuple head) {
     size_t head_size = janet_tuple_length(head);
@@ -77,7 +111,10 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
 
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_abstract(&watchful_monitor_type, sizeof(watchful_monitor_t));
     wm->backend = backend;
-    wm->path = path;
+    wm->path = NULL;
+
+    int error = watchful_copy_path(wm, path, 1024);
+    if (error) janet_panic("path too long");
 
     return janet_wrap_abstract(wm);
 }

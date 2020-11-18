@@ -52,7 +52,8 @@ typedef struct watchful_stream_t {
   JanetThread *parent;
 
 #ifdef LINUX
-  int notifier;
+  int fd;
+  int wd;
 #elif MACOS
   FSEventStreamRef ref;
   CFRunLoopRef loop;
