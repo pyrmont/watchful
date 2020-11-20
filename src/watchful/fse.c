@@ -102,11 +102,14 @@ static int setup(watchful_stream_t *stream) {
 static int teardown(watchful_stream_t *stream) {
     printf("Tearing down...\n");
 
+    if (stream->thread) {
+        CFRunLoopStop(stream->loop);
+        pthread_join(stream->thread, NULL);
+    }
+
     FSEventStreamStop(stream->ref);
     FSEventStreamInvalidate(stream->ref);
     FSEventStreamRelease(stream->ref);
-
-    CFRunLoopStop(stream->loop);
 
     return 0;
 }
