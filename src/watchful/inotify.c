@@ -16,7 +16,7 @@ static char *path_for_wd(watchful_stream_t *stream, int wd) {
             return (char *)stream->watches[i]->path;
     }
 
-    return "";
+    return NULL;
 }
 
 static int handle_event(watchful_stream_t *stream) {
@@ -56,6 +56,11 @@ static int handle_event(watchful_stream_t *stream) {
         event->type = 5;
 
         char *path = path_for_wd(stream, notify_event->wd);
+        if (path == NULL) {
+            free(event);
+            continue;
+        }
+
         if (notify_event->mask & IN_ISDIR) {
             event->path = watchful_clone_string(path);
         } else {
