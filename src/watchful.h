@@ -1,6 +1,14 @@
 #ifndef WATCHER_H
 #define WATCHER_H
 
+#ifdef LINUX
+#define INOTIFY
+#endif
+
+#ifdef MACOS
+#define FSE
+#endif
+
 /* General */
 #include <string.h>
 #include <time.h>
@@ -8,8 +16,7 @@
 /* POSIX */
 #include <pthread.h>
 
-#ifdef LINUX
-/* Linux */
+#ifdef INOTIFY
 #include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
@@ -18,8 +25,9 @@
 #include <sys/signalfd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#elif MACOS
-/* macOS */
+#endif
+
+#ifdef FSE
 #include <CoreServices/CoreServices.h>
 #endif
 
@@ -55,18 +63,20 @@ typedef struct watchful_stream_t {
   watchful_thread_t thread;
   JanetThread *parent;
 
-#ifdef LINUX
+#ifdef INOTIFY
   int fd;
   size_t watch_num;
   struct watchful_watch_t **watches;
-#elif MACOS
+#endif
+
+#ifdef FSE
   FSEventStreamRef ref;
   CFRunLoopRef loop;
 #endif
 } watchful_stream_t;
 
 typedef struct watchful_watch_t {
-#ifdef LINUX
+#ifdef INOTIFY
   int wd;
   const uint8_t *path;
 #endif
