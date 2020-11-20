@@ -30,7 +30,10 @@ char *watchful_extend_path(char *path, char *name, int is_dir) {
 static int watchful_monitor_gc(void *p, size_t size) {
     (void) size;
     watchful_monitor_t *monitor = (watchful_monitor_t *)p;
-    if (monitor->path != NULL) free((uint8_t *)monitor->path);
+    if (monitor->path != NULL) {
+        free((uint8_t *)monitor->path);
+        monitor->path = NULL;
+    }
     return 0;
 }
 
