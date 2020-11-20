@@ -94,6 +94,8 @@ static int setup(watchful_stream_t *stream) {
     );
 
     int error = start_loop(stream);
+    CFRelease(pathsToWatch);
+    CFRelease(path);
     if (error) return 1;
 
     return 0;
