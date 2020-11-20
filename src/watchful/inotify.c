@@ -29,6 +29,18 @@ static int handle_event(watchful_stream_t *stream) {
     for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
         notify_event = (const struct inotify_event *)ptr;
 
+        char *path_to_watch = path_for_wd(stream, notify_event->wd);
+        if (path_to_watch == NULL) continue;
+
+        char *path = (notify_event->mask & IN_ISDIR) ?
+            watchful_clone_string(path_to_watch) :
+            watchful_extend_path(path_to_watch, (char *)notify_event->name, 0);
+
+        if (watchful_is_excluded(path, stream->wm->excludes)) {
+            free(path);
+            continue;
+        }
+
         /* Print event type */
         if (notify_event->mask & IN_MODIFY)
             printf("IN_MODIFY: ");
@@ -54,18 +66,7 @@ static int handle_event(watchful_stream_t *stream) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
         event->type = 5;
-
-        char *path = path_for_wd(stream, notify_event->wd);
-        if (path == NULL) {
-            free(event);
-            continue;
-        }
-
-        if (notify_event->mask & IN_ISDIR) {
-            event->path = watchful_clone_string(path);
-        } else {
-            event->path = watchful_extend_path(path, (char *)notify_event->name, 0);
-        }
+        event->path = path;
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
