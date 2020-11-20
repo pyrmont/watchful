@@ -25,6 +25,22 @@ char *watchful_extend_path(char *path, char *name, int is_dir) {
     return new_path;
 }
 
+int watchful_is_excluded(char *path, JanetView excludes) {
+    if (excludes.len == 0) return 0;
+    int path_len = strlen(path);
+    for (size_t i = 0; i < (size_t)excludes.len; i++) {
+        const uint8_t *exclude = janet_getstring(excludes.items, i);
+        int exclude_len = strlen((char *)exclude);
+        if (exclude_len > path_len) continue;
+        for (int p = path_len - 1, e = exclude_len - 1; p >= 0 && e >= 0; p--, e--) {
+            if (path[p] != exclude[e]) break;
+            if (e == 0 && p == 0) return 1;
+            if (e == 0 && exclude[e] != '/') return 1;
+        }
+    }
+    return 0;
+}
+
 /* Deinitialising */
 
 static int watchful_monitor_gc(void *p, size_t size) {
@@ -135,10 +151,12 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     }
 
     const uint8_t *path = janet_getstring(argv, 0);
+    JanetView excludes = janet_getindexed(argv, 1);
 
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_abstract(&watchful_monitor_type, sizeof(watchful_monitor_t));
     wm->backend = backend;
     wm->path = NULL;
+    wm->excludes = excludes;
 
     int error = watchful_copy_path(wm, path, 1024);
     if (error) janet_panic("path too long");

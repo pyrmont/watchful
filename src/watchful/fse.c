@@ -23,6 +23,8 @@ static void callback(
     watchful_stream_t *stream = (watchful_stream_t *)clientCallBackInfo;
 
     for (size_t i = 0; i < numEvents; i++) {
+        if (watchful_is_excluded(paths[i], stream->wm->excludes)) continue;
+
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
         event->type = 5;
