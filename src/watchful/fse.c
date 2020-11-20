@@ -20,18 +20,18 @@ static void callback(
 {
     char **paths = (char **)eventPaths;
 
-    JanetThread *parent = (JanetThread *)clientCallBackInfo;
+    watchful_stream_t *stream = (watchful_stream_t *)clientCallBackInfo;
 
     for (size_t i = 0; i < numEvents; i++) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
         event->type = 5;
 
-        size_t path_len = strlen(paths[0]) + 1;
-        event->path = (char *)malloc(path_len);
-        memcpy(event->path, paths[0], path_len);
+        size_t path_len = strlen(paths[0]);
+        event->path = (char *)malloc(sizeof(char) * (path_len + 1));
+        memcpy(event->path, paths[0], path_len + 1);
 
-        janet_thread_send(parent, janet_wrap_pointer(event), 10);
+        janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
 }
 
@@ -75,7 +75,7 @@ static int setup(watchful_stream_t *stream) {
 
     FSEventStreamContext stream_context;
     memset(&stream_context, 0, sizeof(stream_context));
-    stream_context.info = stream->parent;
+    stream_context.info = stream;
 
     CFStringRef path = CFStringCreateWithCString(NULL, (const char *)stream->wm->path, kCFStringEncodingUTF8);
     CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
