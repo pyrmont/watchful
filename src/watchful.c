@@ -202,7 +202,11 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
             watchful_event_t *event = (watchful_event_t *)janet_unwrap_pointer(out);
             Janet tup[2] = {janet_cstringv(event->path), janet_wrap_integer(event->type)};
             JanetTuple args = janet_tuple_n(tup, 2);
-            janet_pcall(cb, 2, (Janet *)args, &out, NULL);
+            JanetSignal sig = janet_pcall(cb, 2, (Janet *)args, &out, NULL);
+            printf("Here\n");
+            if (sig != JANET_SIGNAL_OK && sig != JANET_SIGNAL_YIELD) {
+                janet_printf("uv top level signal(%d): %v\n", sig, out);
+            }
             /* TODO: Catch the output and ensure memory is all freed */
             free(event->path);
             free(event);
