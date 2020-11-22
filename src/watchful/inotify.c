@@ -23,6 +23,8 @@ static int handle_event(watchful_stream_t *stream) {
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
 
+    printf("Handling stream");
+
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
 
