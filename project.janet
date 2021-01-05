@@ -38,4 +38,5 @@
   :headers @["src/watchful.h"]
   :source @["src/watchful/fse.c"
             "src/watchful/inotify.c"
+            "src/watchful/wildmatch.c"
             "src/watchful.c"])

@@ -23,11 +23,17 @@ static int handle_event(watchful_stream_t *stream) {
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
 
-    printf("Handling stream\n");
+    if (stream->delay) {
+        int seconds = (int)stream->delay;
+        int nanoseconds = (int)((stream->delay - seconds) * 100000000);
+        struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, };
+        nanosleep(&duration, NULL);
+    }
 
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
 
+    char *prev_path = NULL;
     for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
         notify_event = (const struct inotify_event *)ptr;
 
@@ -45,30 +51,47 @@ static int handle_event(watchful_stream_t *stream) {
 
         /* Print event type */
         if (notify_event->mask & IN_MODIFY)
-            printf("IN_MODIFY: ");
+            debug_print("IN_MODIFY: ");
         if (notify_event->mask & IN_MOVE)
-            printf("IN_MOVE: ");
+            debug_print("IN_MOVE: ");
         if (notify_event->mask & IN_ATTRIB)
-            printf("IN_ATTRIB: ");
+            debug_print("IN_ATTRIB: ");
         if (notify_event->mask & IN_DELETE)
-            printf("IN_DELETE: ");
+            debug_print("IN_DELETE: ");
 
         /* Print the name of the file */
         if (notify_event->len)
-            printf("%s", notify_event->name);
+            debug_print("%s", notify_event->name);
         else
-            printf("%s", stream->wm->path);
+            debug_print("%s", stream->wm->path);
 
         /* Print type of filesystem object */
         if (notify_event->mask & IN_ISDIR)
-            printf(" [directory]\n");
+            debug_print(" [directory]\n");
         else
-            printf(" [file]\n");
+            debug_print(" [file]\n");
 
+        if (prev_path == NULL) {
+            prev_path = path;
+        } else if (!strcmp(path, prev_path)) {
+            free(prev_path);
+            prev_path = path;
+        } else {
+            watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
+
+            event->type = 0;
+            event->path = prev_path;
+
+            janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
+            prev_path = NULL;
+        }
+    }
+
+    if (prev_path != NULL) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
-        event->type = 5;
-        event->path = path;
+        event->type = 0;
+        event->path = prev_path;
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
@@ -89,7 +112,7 @@ static void *loop_runner(void *arg) {
     int sfd = signalfd(-1, &mask, 0);
     if (sfd == -1) return NULL;
 
-    printf("Entering the run loop...\n");
+    debug_print("Entering the run loop...\n");
     while (1) {
         int nfds = ((stream->fd < sfd) ? sfd : stream->fd) + 1;
 
@@ -101,14 +124,14 @@ static void *loop_runner(void *arg) {
         select(nfds, &readfds, NULL, NULL, NULL);
         if (FD_ISSET(sfd, &readfds)) break;
 
-        printf("Select complete\n");
+        debug_print("Select complete\n");
 
         error = handle_event(stream);
         if (error) return NULL;
 
-        printf("Read complete\n");
+        debug_print("Read complete\n");
     }
-    printf("Leaving the run loop...\n");
+    debug_print("Leaving the run loop...\n");
 
     close(sfd);
 
@@ -130,7 +153,7 @@ static int start_loop(watchful_stream_t *stream) {
 }
 
 static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
-    printf("The number of watches is %ld\n", stream->watch_num);
+    debug_print("The number of watches is %ld\n", stream->watch_num);
     if (stream->watch_num == 0) {
         stream->watches = (watchful_watch_t **)malloc(sizeof(watchful_watch_t *));
     } else {
@@ -143,10 +166,10 @@ static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
 
     int events = IN_MODIFY | IN_MOVE | IN_ATTRIB | IN_DELETE;
 
-    printf("Adding watch to %s...\n", path);
+    debug_print("Adding watch to %s...\n", path);
     watch->wd = inotify_add_watch(stream->fd, path, events);
     if (watch->wd == -1) return 1;
-    printf("Watch added\n");
+    debug_print("Watch added\n");
 
     watch->path = (const uint8_t *)watchful_clone_string(path);
 
@@ -164,7 +187,7 @@ static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
             continue;
         }
 
-        printf("Adding more watches...\n");
+        debug_print("Adding more watches...\n");
         int error = add_watches(stream, child_path, dir);
         free(child_path);
         closedir(dir);
@@ -175,7 +198,7 @@ static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
 }
 
 static int setup(watchful_stream_t *stream) {
-    printf("Setting up...\n");
+    debug_print("Setting up...\n");
     int error = 0;
 
     stream->fd = inotify_init();
@@ -197,7 +220,7 @@ static int setup(watchful_stream_t *stream) {
 }
 
 static int teardown(watchful_stream_t *stream) {
-    printf("Tearing down...\n");
+    debug_print("Tearing down...\n");
     int error = 0;
 
     if (stream->thread) {
@@ -212,6 +235,7 @@ static int teardown(watchful_stream_t *stream) {
     }
 
     free(stream->watches);
+    stream->watches = NULL;
 
     error = close(stream->fd);
     if (error) return 1;

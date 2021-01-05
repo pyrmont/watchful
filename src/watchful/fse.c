@@ -22,16 +22,30 @@ static void callback(
 
     watchful_stream_t *stream = (watchful_stream_t *)clientCallBackInfo;
 
+    char *prev_path = NULL;
     for (size_t i = 0; i < numEvents; i++) {
         if (watchful_is_excluded(paths[i], stream->wm->excludes)) continue;
 
+        if (prev_path == NULL) {
+            prev_path = paths[i];
+        } else if (!strcmp(paths[i], prev_path)) {
+            prev_path = paths[i];
+        } else {
+            watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
+
+            event->type = 0;
+            event->path = watchful_clone_string(prev_path);
+
+            janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
+            prev_path = NULL;
+        }
+    }
+
+    if (prev_path != NULL) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
-        event->type = 5;
-
-        size_t path_len = strlen(paths[0]);
-        event->path = (char *)malloc(sizeof(char) * (path_len + 1));
-        memcpy(event->path, paths[0], path_len + 1);
+        event->type = 0;
+        event->path = watchful_clone_string(prev_path);
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
@@ -50,9 +64,9 @@ static void *loop_runner(void *arg) {
 
     FSEventStreamStart(stream->ref);
 
-    printf("Entering the run loop...\n");
+    debug_print("Entering the run loop...\n");
     CFRunLoopRun();
-    printf("Leaving the run loop...\n");
+    debug_print("Leaving the run loop...\n");
 
     stream->loop = NULL;
     return NULL;
@@ -73,7 +87,7 @@ static int start_loop(watchful_stream_t *stream) {
 }
 
 static int setup(watchful_stream_t *stream) {
-    printf("Setting up...\n");
+    debug_print("Setting up...\n");
 
     FSEventStreamContext stream_context;
     memset(&stream_context, 0, sizeof(stream_context));
@@ -82,7 +96,7 @@ static int setup(watchful_stream_t *stream) {
     CFStringRef path = CFStringCreateWithCString(NULL, (const char *)stream->wm->path, kCFStringEncodingUTF8);
     CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
 
-    CFAbsoluteTime latency = 1.0; /* Latency in seconds */
+    CFAbsoluteTime latency = stream->delay; /* Latency in seconds */
 
     stream->ref = FSEventStreamCreate(
         NULL,
@@ -104,7 +118,7 @@ static int setup(watchful_stream_t *stream) {
 }
 
 static int teardown(watchful_stream_t *stream) {
-    printf("Tearing down...\n");
+    debug_print("Tearing down...\n");
 
     if (stream->thread) {
         CFRunLoopStop(stream->loop);

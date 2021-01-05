@@ -25,18 +25,11 @@ char *watchful_extend_path(char *path, char *name, int is_dir) {
     return new_path;
 }
 
-int watchful_is_excluded(char *path, JanetView excludes) {
-    if (excludes.len == 0) return 0;
-    int path_len = strlen(path);
-    for (size_t i = 0; i < (size_t)excludes.len; i++) {
-        const uint8_t *exclude = janet_getstring(excludes.items, i);
-        int exclude_len = strlen((char *)exclude);
-        if (exclude_len > path_len) continue;
-        for (int p = path_len - 1, e = exclude_len - 1; p >= 0 && e >= 0; p--, e--) {
-            if (path[p] != exclude[e]) break;
-            if (e == 0 && p == 0) return 1;
-            if (e == 0 && exclude[e] != '/') return 1;
-        }
+int watchful_is_excluded(char *path, watchful_excludes_t *excludes) {
+    if (excludes->len == 0) return 0;
+    for (size_t i = 0; i < (size_t)excludes->len; i++) {
+        const char *exclude = (const char *)excludes->paths[i];
+        if (wildmatch(exclude, path, WM_WILDSTAR) == WM_MATCH) return 1;
     }
     return 0;
 }
@@ -50,6 +43,13 @@ static int watchful_monitor_gc(void *p, size_t size) {
         free((uint8_t *)monitor->path);
         monitor->path = NULL;
     }
+    if (monitor->excludes->len != 0) {
+        for (size_t i = 0; i < monitor->excludes->len; i++) {
+            free((char *)monitor->excludes->paths[i]);
+        }
+        free(monitor->excludes);
+        monitor->excludes = NULL;
+    }
     return 0;
 }
 
@@ -57,7 +57,11 @@ static int watchful_monitor_gc(void *p, size_t size) {
 
 static int watchful_monitor_mark(void *p, size_t size) {
     (void) size;
-    (void) p;
+    watchful_monitor_t *monitor = (watchful_monitor_t *)p;
+
+    Janet wrapped_path = janet_wrap_string(monitor->path);
+    janet_mark(wrapped_path);
+
     return 0;
 }
 
@@ -71,6 +75,36 @@ static const JanetAbstractType watchful_monitor_type = {
 };
 
 /* C Functions */
+
+static int watchful_copy_excludes(watchful_monitor_t *wm, JanetView exclude_paths) {
+    wm->excludes = (watchful_excludes_t *)malloc(sizeof(watchful_excludes_t));
+    if (wm->excludes == NULL) return 1;
+    wm->excludes->paths = NULL;
+    wm->excludes->len = 0;
+
+    if (exclude_paths.len == 0) return 0;
+
+    for (size_t i = 0; i < (size_t)exclude_paths.len; i++) {
+        if (i == 0) {
+            wm->excludes->paths = (char **)malloc(sizeof(char *));
+            if (wm->excludes->paths == NULL) return 1;
+        } else {
+            char **new_paths = (char **)realloc(wm->excludes->paths, sizeof(char *) * (i + 1));
+            if (new_paths == NULL) return 1;
+            wm->excludes->paths = new_paths;
+        }
+        char *exclude_path = (char *)janet_getstring(exclude_paths.items, i);
+        if (exclude_path[0] == '/') {
+            wm->excludes->paths[i] = watchful_clone_string(exclude_path);
+        } else {
+            wm->excludes->paths[i] = watchful_extend_path((char *)wm->path, exclude_path, 0);
+        }
+        if (wm->excludes->paths[i] == NULL) return 1;
+        wm->excludes->len = i + 1;
+    }
+
+    return 0;
+}
 
 static int watchful_copy_path(watchful_monitor_t *wm, const uint8_t *path, size_t max_len) {
     size_t path_len = strlen((char *)path);
@@ -98,40 +132,41 @@ static int watchful_copy_path(watchful_monitor_t *wm, const uint8_t *path, size_
 
     buf[buf_len + path_len] = '/';
     buf[buf_len + path_len + 1] = '\0';
-    printf("The path being watched is %s\n", buf);
+    debug_print("The path being watched is %s\n", buf);
 
     wm->path = (const uint8_t *)buf;
     return 0;
 }
 
-static int watchful_option_count(JanetTuple head) {
-    size_t head_size = janet_tuple_length(head);
-
-    if (head_size > 1 && !janet_cstrcmp(janet_getkeyword(head, 1), "count"))
-        return janet_getinteger(head, 2);
-
-    if (head_size > 3 && !janet_cstrcmp(janet_getkeyword(head, 3), "count"))
-        return janet_getinteger(head, 4);
-
-    return (int)INFINITY; /* No real infinity for ints */
+static JanetThread *watchful_current_thread() {
+    JanetCFunction cfun = janet_unwrap_cfunction(janet_resolve_core("thread/current"));
+    return (JanetThread *)janet_unwrap_abstract(cfun(0, NULL));
 }
 
-static double watchful_option_elapse(JanetTuple head) {
-    size_t head_size = janet_tuple_length(head);
+static double watchful_option_number(JanetTuple head, char *name, double dflt) {
+    size_t head_size = (head == NULL) ? 0 : janet_tuple_length(head);
 
-    if (head_size > 1 && !janet_cstrcmp(janet_getkeyword(head, 1), "elapse"))
-        return janet_getnumber(head, 2);
+    for (size_t i = 0; i < head_size; i += 2) {
+        if (!janet_cstrcmp(janet_getkeyword(head, i), name))
+            return janet_getnumber(head, i + 1);
+    }
 
-    if (head_size > 3 && !janet_cstrcmp(janet_getkeyword(head, 3), "elapse"))
-        return janet_getnumber(head, 4);
-
-    return INFINITY;
+    return dflt;
 }
 
 static Janet cfun_create(int32_t argc, Janet *argv) {
     janet_arity(argc, 1, 3);
 
-    /* Need to know backend first */
+    const uint8_t *path = janet_getstring(argv, 0);
+
+    JanetView exclude_paths;
+    if (argc >= 2) {
+        exclude_paths = janet_getindexed(argv, 1);
+    } else {
+        exclude_paths.items = NULL;
+        exclude_paths.len = 0;
+    }
+
     watchful_backend_t *backend = NULL;
     if (argc == 3) {
         const uint8_t *choice = janet_getkeyword(argv, 2);
@@ -150,48 +185,43 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
         janet_panicf("backend :%s is not supported on this platform", backend->name);
     }
 
-    const uint8_t *path = janet_getstring(argv, 0);
-    JanetView excludes = janet_getindexed(argv, 1);
-
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_abstract(&watchful_monitor_type, sizeof(watchful_monitor_t));
     wm->backend = backend;
     wm->path = NULL;
-    wm->excludes = excludes;
+    wm->excludes = NULL;
 
-    int error = watchful_copy_path(wm, path, 1024);
+    int error = 0;
+    error = watchful_copy_path(wm, path, 1024);
     if (error) janet_panic("path too long");
+
+    error = watchful_copy_excludes(wm, exclude_paths);
+    if (error) janet_panic("cannot copy excluded paths");
 
     return janet_wrap_abstract(wm);
 }
 
 static Janet cfun_watch(int32_t argc, Janet *argv) {
-    janet_fixarity(argc, 2);
+    janet_arity(argc, 2, 3);
 
-    JanetTuple head = janet_gettuple(argv, 0);
+    watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(argv, 0, &watchful_monitor_type);
     JanetFunction *cb = janet_getfunction(argv, 1);
+    JanetTuple head = (argc == 3) ? janet_gettuple(argv, 2) : NULL;
 
-    size_t head_size = janet_tuple_length(head);
+    if (argc == 3 && janet_tuple_length(head) % 2 != 0) janet_panicf("missing option value");
 
-    if (head_size == 0) {
-        janet_panicf("missing path monitor");
-    } else if (head_size % 2 == 0) {
-        janet_panicf("missing option value");
-    }
+    double count = watchful_option_number(head, "count", INFINITY);
+    double elapse = watchful_option_number(head, "elapse", INFINITY);
+    double delay = watchful_option_number(head, "delay", 0.0);
 
-    watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(head, 0, &watchful_monitor_type);
     watchful_stream_t *stream = (watchful_stream_t *)malloc(sizeof(watchful_stream_t));
     stream->wm = wm;
-
-    int count = watchful_option_count(head);
-    double elapse = watchful_option_elapse(head);
-
-    JanetCFunction cfun = janet_unwrap_cfunction(janet_resolve_core("thread/current"));
-    stream->parent = (JanetThread *)janet_unwrap_abstract(cfun(0, NULL));
+    stream->parent = watchful_current_thread();
+    stream->delay = delay;
 
     wm->backend->setup(stream);
-    printf("Setup complete\n");
+    debug_print("Setup complete\n");
 
-    int counted = 0;
+    double counted = 0.0;
     double elapsed = 0.0;
     time_t start = time(0);
     while (counted < count && elapsed < elapse) {
@@ -202,12 +232,13 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
             watchful_event_t *event = (watchful_event_t *)janet_unwrap_pointer(out);
             Janet tup[2] = {janet_cstringv(event->path), janet_wrap_integer(event->type)};
             JanetTuple args = janet_tuple_n(tup, 2);
-            printf("Here\n");
-            JanetSignal sig = janet_pcall(cb, 2, (Janet *)args, &out, NULL);
+            JanetFiber *cb_f = janet_fiber(cb, 64, 2, args);
+            cb_f->env = (janet_current_fiber())->env;
+            JanetSignal sig = janet_continue(cb_f, janet_wrap_nil(), &out);
             if (sig != JANET_SIGNAL_OK && sig != JANET_SIGNAL_YIELD) {
-                janet_printf("uv top level signal(%d): %v\n", sig, out);
+                janet_stacktrace(cb_f, out);
+                janet_printf("top level signal(%d): %v\n", sig, out);
             }
-            /* TODO: Catch the output and ensure memory is all freed */
             free(event->path);
             free(event);
         }
@@ -217,11 +248,12 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
     }
 
     wm->backend->teardown(stream);
-    printf("Teardown complete\n");
+    debug_print("Teardown complete\n");
 
     stream->wm = NULL;
     stream->parent = NULL;
     free(stream);
+    debug_print("Freed stream\n");
 
     return janet_wrap_integer(0);
 }
@@ -237,7 +269,7 @@ static const JanetReg cfuns[] = {
      "will panic."
     },
     {"watch", cfun_watch,
-     "(watchful/watch [monitor & options] cb)\n\n"
+     "(watchful/watch monitor cb &opt options)\n\n"
      "Watch `monitor` and execute the function `cb` on changes\n\n"
      "The watch can optionally include `:count <integer>` and/or `:elapse "
      "<double>`. The integer after `:count` is the number of changes that "
