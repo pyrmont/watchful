@@ -23,19 +23,34 @@ static int handle_event(watchful_stream_t *stream) {
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
 
-    if (stream->delay) {
-        int seconds = (int)stream->delay;
-        int nanoseconds = (int)((stream->delay - seconds) * 100000000);
-        struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, };
-        nanosleep(&duration, NULL);
-    }
+    /* if (stream->delay) { */
+    /*     int seconds = (int)stream->delay; */
+    /*     int nanoseconds = (int)((stream->delay - seconds) * 100000000); */
+    /*     struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, }; */
+    /*     nanosleep(&duration, NULL); */
+    /* } */
 
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
 
     char *prev_path = NULL;
     for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
+        int event_type = 0;
         notify_event = (const struct inotify_event *)ptr;
+
+        if (notify_event->mask & IN_CREATE) {
+            event_type = WFLAG_CREATED;
+        } else if (notify_event->mask & IN_DELETE) {
+            event_type = WFLAG_DELETED;
+        } else if (notify_event->mask & IN_MOVE) {
+            event_type = WFLAG_MOVED;
+        } else if ((notify_event->mask & IN_MODIFY) ||
+                   (notify_event->mask & IN_ATTRIB)) {
+            event_type = WFLAG_MODIFIED;
+        }
+
+        if (!event_type) continue;
+        /* if (!event_type || !(stream->wm->events & event_type)) continue; */
 
         char *path_to_watch = path_for_wd(stream, notify_event->wd);
         if (path_to_watch == NULL) continue;
@@ -50,14 +65,14 @@ static int handle_event(watchful_stream_t *stream) {
         }
 
         /* Print event type */
-        if (notify_event->mask & IN_MODIFY)
-            debug_print("IN_MODIFY: ");
-        if (notify_event->mask & IN_MOVE)
-            debug_print("IN_MOVE: ");
-        if (notify_event->mask & IN_ATTRIB)
-            debug_print("IN_ATTRIB: ");
-        if (notify_event->mask & IN_DELETE)
-            debug_print("IN_DELETE: ");
+        if (event_type == WFLAG_CREATED)
+            debug_print("Created: ");
+        if (event_type == WFLAG_DELETED)
+            debug_print("Deleted: ");
+        if (event_type == WFLAG_MOVED)
+            debug_print("Moved: ");
+        if (event_type == WFLAG_MODIFIED)
+            debug_print("Modified: ");
 
         /* Print the name of the file */
         if (notify_event->len)
@@ -79,7 +94,7 @@ static int handle_event(watchful_stream_t *stream) {
         } else {
             watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
-            event->type = 0;
+            event->type = event_type;
             event->path = prev_path;
 
             janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
@@ -164,7 +179,17 @@ static int add_watches(watchful_stream_t *stream, char *path, DIR *dir) {
     watchful_watch_t *watch = (watchful_watch_t *)malloc(sizeof(watchful_watch_t));
     stream->watches[stream->watch_num++] = watch;
 
-    int events = IN_MODIFY | IN_MOVE | IN_ATTRIB | IN_DELETE;
+    int events = IN_ATTRIB | IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVE;
+    if (!(stream->wm->events & WFLAG_CREATED))
+        events = events ^ IN_CREATE;
+    if (!(stream->wm->events & WFLAG_DELETED))
+        events = events ^ IN_DELETE;
+    if (!(stream->wm->events & WFLAG_MOVED))
+        events = events ^ IN_MOVE;
+    if (!(stream->wm->events & WFLAG_MODIFIED)) {
+        events = events ^ IN_ATTRIB;
+        events = events ^ IN_MODIFY;
+    }
 
     debug_print("Adding watch to %s...\n", path);
     watch->wd = inotify_add_watch(stream->fd, path, events);

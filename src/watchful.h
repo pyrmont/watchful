@@ -35,12 +35,17 @@
 /* Janet */
 #include <janet.h>
 
-/* Type Aliases */
+/* Constants */
+#define WFLAG_ALL      0xF00
+#define WFLAG_CREATED  0x100
+#define WFLAG_DELETED  0x200
+#define WFLAG_MOVED    0x400
+#define WFLAG_MODIFIED 0x800
 
+/* Type Aliases */
 typedef pthread_t watchful_thread_t;
 
 /* Forward Declarations */
-
 struct watchful_monitor_t;
 struct watchful_backend_t;
 struct watchful_stream_t;
@@ -63,6 +68,7 @@ typedef struct watchful_monitor_t {
   struct watchful_backend_t *backend;
   const uint8_t *path;
   watchful_excludes_t *excludes;
+  int events;
 } watchful_monitor_t;
 
 typedef struct watchful_stream_t {
@@ -96,7 +102,6 @@ typedef struct watchful_event_t {
 } watchful_event_t;
 
 /* Externs */
-
 extern watchful_backend_t watchful_fse;
 extern watchful_backend_t watchful_inotify;
 
@@ -112,7 +117,6 @@ char *watchful_extend_path(char *path, char *name, int is_dir);
 int watchful_is_excluded(char *path, watchful_excludes_t *excludes);
 
 /* Debugging Functions */
-
 #define DEBUG 0
 #define debug_print(...) \
     do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)

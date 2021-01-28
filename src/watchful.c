@@ -1,6 +1,5 @@
 #include "watchful.h"
 
-
 /* Utility Functions */
 
 char *watchful_clone_string(char *src) {
@@ -74,9 +73,47 @@ static const JanetAbstractType watchful_monitor_type = {
     JANET_ATEND_GCMARK
 };
 
-/* C Functions */
+/* Helper Functions */
 
-static int watchful_copy_excludes(watchful_monitor_t *wm, JanetView exclude_paths) {
+static JanetThread *watchful_current_thread() {
+    JanetCFunction cfun = janet_unwrap_cfunction(janet_resolve_core("thread/current"));
+    return (JanetThread *)janet_unwrap_abstract(cfun(0, NULL));
+}
+
+static double watchful_option_number(JanetTuple head, char *name, double dflt) {
+    size_t head_size = (head == NULL) ? 0 : janet_tuple_length(head);
+
+    for (size_t i = 0; i < head_size; i += 2) {
+        if (!janet_cstrcmp(janet_getkeyword(head, i), name))
+            return janet_getnumber(head, i + 1);
+    }
+
+    return dflt;
+}
+
+static int watchful_set_events(watchful_monitor_t *wm, JanetView exclude_events) {
+    wm->events = WFLAG_ALL;
+    if (exclude_events.len == 0) return 0;
+
+    for (size_t i = 0; i < (size_t)exclude_events.len; i++) {
+        const uint8_t *choice = janet_getkeyword(exclude_events.items, i);
+        if (!janet_cstrcmp(choice, "created")) {
+            wm->events = wm->events ^ WFLAG_CREATED;
+        } else if (!janet_cstrcmp(choice, "deleted")) {
+            wm->events = wm->events ^ WFLAG_DELETED;
+        } else if (!janet_cstrcmp(choice, "moved")) {
+            wm->events = wm->events ^ WFLAG_MOVED;
+        } else if (!janet_cstrcmp(choice, "modified")) {
+            wm->events = wm->events ^ WFLAG_MODIFIED;
+        } else {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int watchful_set_excludes(watchful_monitor_t *wm, JanetView exclude_paths) {
     wm->excludes = (watchful_excludes_t *)malloc(sizeof(watchful_excludes_t));
     if (wm->excludes == NULL) return 1;
     wm->excludes->paths = NULL;
@@ -106,7 +143,7 @@ static int watchful_copy_excludes(watchful_monitor_t *wm, JanetView exclude_path
     return 0;
 }
 
-static int watchful_copy_path(watchful_monitor_t *wm, const uint8_t *path, size_t max_len) {
+static int watchful_set_path(watchful_monitor_t *wm, const uint8_t *path, size_t max_len) {
     size_t path_len = strlen((char *)path);
 
     if (path_len > max_len) return 1;
@@ -138,24 +175,10 @@ static int watchful_copy_path(watchful_monitor_t *wm, const uint8_t *path, size_
     return 0;
 }
 
-static JanetThread *watchful_current_thread() {
-    JanetCFunction cfun = janet_unwrap_cfunction(janet_resolve_core("thread/current"));
-    return (JanetThread *)janet_unwrap_abstract(cfun(0, NULL));
-}
-
-static double watchful_option_number(JanetTuple head, char *name, double dflt) {
-    size_t head_size = (head == NULL) ? 0 : janet_tuple_length(head);
-
-    for (size_t i = 0; i < head_size; i += 2) {
-        if (!janet_cstrcmp(janet_getkeyword(head, i), name))
-            return janet_getnumber(head, i + 1);
-    }
-
-    return dflt;
-}
+/* Exposed Functions */
 
 static Janet cfun_create(int32_t argc, Janet *argv) {
-    janet_arity(argc, 1, 3);
+    janet_arity(argc, 1, 4);
 
     const uint8_t *path = janet_getstring(argv, 0);
 
@@ -167,9 +190,17 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
         exclude_paths.len = 0;
     }
 
+    JanetView exclude_events;
+    if (argc >= 3) {
+        exclude_events = janet_getindexed(argv, 2);
+    } else {
+        exclude_events.items = NULL;
+        exclude_events.len = 0;
+    }
+
     watchful_backend_t *backend = NULL;
-    if (argc == 3) {
-        const uint8_t *choice = janet_getkeyword(argv, 2);
+    if (argc == 4) {
+        const uint8_t *choice = janet_getkeyword(argv, 3);
         if (!janet_cstrcmp(choice, "fse")) {
             backend = &watchful_fse;
         } else if (!janet_cstrcmp(choice, "inotify")) {
@@ -189,13 +220,17 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     wm->backend = backend;
     wm->path = NULL;
     wm->excludes = NULL;
+    wm->events = 0;
 
     int error = 0;
-    error = watchful_copy_path(wm, path, 1024);
+    error = watchful_set_path(wm, path, 1024);
     if (error) janet_panic("path too long");
 
-    error = watchful_copy_excludes(wm, exclude_paths);
+    error = watchful_set_excludes(wm, exclude_paths);
     if (error) janet_panic("cannot copy excluded paths");
+
+    error = watchful_set_events(wm, exclude_events);
+    if (error) janet_panic("invalid keywords in events to exclude");
 
     return janet_wrap_abstract(wm);
 }
@@ -260,13 +295,18 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
 
 static const JanetReg cfuns[] = {
     {"create", cfun_create,
-     "(watchful/create path &opt excludes backend)\n\n"
+     "(watchful/create path &opt ignored-paths ignored-events backend)\n\n"
      "Create a monitor for `path`\n\n"
-     "The monitor can optionally be created with `excludes`, an array or tuple "
-     "of strings that are paths that the monitor will exclude, and `backend`, "
-     "a keyword representing the API that the monitor will use (`:fse`, "
-     "`:inotify`). If a backend is selected that is not supported, the function "
-     "will panic."
+     "By default, Watchful will watch for creation, deletion, movement and "
+     "modification events. In addition to the path, the user can optionally "
+     "set:\n"
+     "- `ignored-paths`: (array/tuple) events on paths that include one of these "
+     "strings are ignored\n"
+     "- `ignored-events`: (array/tuple) events that match one of these events "
+     "(`:created`, `:deleted`, `:moved` and `:modified`) are ignored\n"
+     "- `backend`: (keyword) a keyword denoting the backend to use, one of "
+     "`:fse`, `:inotify`\n"
+     "If a backend is selected that is not supported, the function will panic."
     },
     {"watch", cfun_watch,
      "(watchful/watch monitor cb &opt options)\n\n"

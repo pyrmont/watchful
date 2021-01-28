@@ -39,7 +39,7 @@
     (is (== result "Detected"))))
 
 
-(deftest watch-with-exclusions
+(deftest watch-with-ignored-paths
   (os/mkdir "tmp")
   (defer (rimraf "tmp")
     (defn worker [parent]
@@ -52,6 +52,22 @@
     (os/sleep 1)
     (spit "tmp/foo.txt" "Hello world")
     (def result (thread/receive))
+    (is (== result ""))))
+
+
+(deftest watch-with-ignored-events
+  (os/mkdir "tmp")
+  (defer (rimraf "tmp")
+    (defn worker [parent]
+      (def output @"")
+      (watchful/watch (watchful/create "tmp" [] [:created :modified])
+                      (fn [path event-type] (buffer/push output "Detected"))
+                      [:elapse 2.0])
+      (thread/send parent output))
+    (thread/new worker)
+    (os/sleep 1)
+    (spit "tmp/foo.txt" "Hello world")
+    (def result (thread/receive 3.0))
     (is (== result ""))))
 
 
