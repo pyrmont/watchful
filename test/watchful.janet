@@ -32,6 +32,7 @@
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
                     [:count 1 :elapse 2.0]
+                    0.0
                     (fn [] (thread/send parent :ready)))
     (thread/send parent output))
   (thread/new worker)
@@ -50,6 +51,7 @@
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
                     [:elapse 1.0]
+                    0.0
                     (fn [] (thread/send parent :ready)))
     (thread/send parent output))
   (thread/new worker)
@@ -68,6 +70,7 @@
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
                     [:elapse 1.0]
+                    0.0
                     (fn [] (thread/send parent :ready)))
     (thread/send parent output))
   (thread/new worker)
@@ -75,6 +78,44 @@
     (spit (string dir "/foo.txt") "Hello world")
     (def result (thread/receive math/inf))
     (is (== "" result))))
+
+
+(deftest watch-with-frequency
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
+  (defn worker [parent]
+    (def output @"")
+    (def monitor (watchful/create dir []))
+    (watchful/watch monitor
+                    (fn [path event-types] (buffer/push output "Detected"))
+                    [:elapse 1.0]
+                    2.0
+                    (fn [] (thread/send parent :ready)))
+    (thread/send parent output))
+  (thread/new worker)
+  (when (= :ready (thread/receive 5))
+    (spit (string dir "/foo.txt") "Hello world")
+    (def result (thread/receive math/inf))
+    (is (== "Detected" result))))
+
+
+(deftest watch-with-no-frequency
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
+  (defn worker [parent]
+    (def output @"")
+    (def monitor (watchful/create dir []))
+    (watchful/watch monitor
+                    (fn [path event-types] (buffer/push output "Detected"))
+                    [:elapse 1.0]
+                    0.0
+                    (fn [] (thread/send parent :ready)))
+    (thread/send parent output))
+  (thread/new worker)
+  (when (= :ready (thread/receive 5))
+    (spit (string dir "/foo.txt") "Hello world")
+    (def result (thread/receive math/inf))
+    (is (== "DetectedDetected" result))))
 
 
 (defer (rimraf "tmp")

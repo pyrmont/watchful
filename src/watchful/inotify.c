@@ -24,12 +24,12 @@ static int handle_event(watchful_stream_t *stream) {
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
 
-    if (stream->delay) {
-        int seconds = (int)stream->delay;
-        int nanoseconds = (int)((stream->delay - seconds) * 100000000);
-        struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, };
-        nanosleep(&duration, NULL);
-    }
+    /* if (stream->delay) { */
+    /*     int seconds = (int)stream->delay; */
+    /*     int nanoseconds = (int)((stream->delay - seconds) * 100000000); */
+    /*     struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, }; */
+    /*     nanosleep(&duration, NULL); */
+    /* } */
 
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;

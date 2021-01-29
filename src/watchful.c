@@ -282,18 +282,18 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
 }
 
 static Janet cfun_watch(int32_t argc, Janet *argv) {
-    janet_arity(argc, 2, 4);
+    janet_arity(argc, 2, 5);
 
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(argv, 0, &watchful_monitor_type);
     JanetFunction *event_cb = janet_getfunction(argv, 1);
     JanetTuple head = (argc >= 3) ? janet_gettuple(argv, 2) : NULL;
-    JanetFunction *ready_cb = (argc == 4) ? janet_getfunction(argv, 3) : NULL;
+    double delay = (argc >= 4) ? janet_getnumber(argv, 3) : 1.0;
+    JanetFunction *ready_cb = (argc == 5) ? janet_getfunction(argv, 4) : NULL;
 
     if (argc >= 3 && janet_tuple_length(head) % 2 != 0) janet_panicf("missing option value");
 
     double count = watchful_option_number(head, "count", INFINITY);
     double elapse = watchful_option_number(head, "elapse", INFINITY);
-    double delay = watchful_option_number(head, "delay", 0.0);
 
     watchful_stream_t *stream = (watchful_stream_t *)malloc(sizeof(watchful_stream_t));
     stream->wm = wm;
@@ -318,12 +318,16 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
 
     double counted = 0.0;
     double elapsed = 0.0;
+    double delayed = 0.0;
     time_t start = time(0);
+    time_t last_run = 0;
     while (counted < count && elapsed < elapse) {
-        double timeout = (elapse == INFINITY) ? INFINITY : elapse;
         Janet out;
+        double timeout = (elapse == INFINITY) ? INFINITY : (elapse - elapsed);
         int timed_out = janet_thread_receive(&out, timeout);
-        if (!timed_out) {
+        time_t now = time(0);
+        delayed = (double)now - (double)last_run;
+        if (!timed_out && delayed >= delay) {
             watchful_event_t *event = (watchful_event_t *)janet_unwrap_pointer(out);
             Janet const *event_types = watchful_tuple_event_types(event->type);
             Janet tup[2] = {janet_cstringv(event->path), janet_wrap_tuple(event_types)};
@@ -337,9 +341,9 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
             }
             free(event->path);
             free(event);
+            last_run = now;
         }
         counted++;
-        time_t now = time(0);
         elapsed = (double)now - (double)start;
     }
 
@@ -360,20 +364,20 @@ static const JanetReg cfuns[] = {
      "Create a monitor for `path`\n\n"
      "By default, Watchful will watch for creation, deletion, movement and "
      "modification events. In addition to the path, the user can optionally "
-     "set:\n"
+     "set:\n\n"
      "- `ignored-paths`: (array/tuple) events on paths that include one of these "
-     "strings are ignored\n"
+     "strings are ignored\n\n"
      "- `ignored-events`: (array/tuple) events that match one of these events "
-     "(`:created`, `:deleted`, `:moved` and `:modified`) are ignored\n"
+     "(`:created`, `:deleted`, `:moved` and `:modified`) are ignored\n\n"
      "- `backend`: (keyword) a keyword denoting the backend to use, one of "
-     "`:fse`, `:inotify`\n"
+     "`:fse`, `:inotify`\n\n"
      "If a backend is selected that is not supported, the function will panic."
     },
     {"watch", cfun_watch,
-     "(watchful/watch monitor event-cb &opt conditions ready-cb)\n\n"
-     "Watch `monitor` and call the function `event-cb` on file system events "
-     "with optional termination conditions and a ready callback\n\n"
-     "The `event-cb` function is a function that takes two arguments: `path` "
+     "(watchful/watch monitor on-event &opt conditions freq on-ready)\n\n"
+     "Watch `monitor` and call the function `on-event` on file system events "
+     "with optional termination conditions and an on-ready callback\n\n"
+     "The `on-event` callback is a function that takes two arguments: `path` "
      "is the path of the file triggering the event and `event-types` is a "
      "tuple of the event types that occurred.\n\n"
      "Supported termination conditons are `:count <integer>` and "
@@ -382,8 +386,8 @@ static const JanetReg cfuns[] = {
      "`:elapse` is the number of seconds to wait until the watch terminates. "
      "If both conditions are provided, the watch will terminate when the "
      "earlier condition is met.\n\n"
-     "The ready callback is a function that takes no arguments and is called "
-     "after the watch begins."
+     "The `on-ready` callback is a function that takes no arguments and is "
+     "called after the watch begins."
     },
     {NULL, NULL, NULL}
 };
