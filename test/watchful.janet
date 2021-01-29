@@ -14,9 +14,10 @@
 
 (deftest watch-with-timeout
   (print "\nwatch-with-timeout")
-  (os/mkdir "tmp/tmp1")
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
   (def start (os/mktime (os/date)))
-  (watchful/watch (watchful/create "tmp/tmp1")
+  (watchful/watch (watchful/create dir)
                   (fn [path event-type] nil)
                   [:elapse 1.0])
   (def end (os/mktime (os/date)))
@@ -25,61 +26,61 @@
 
 (deftest watch-with-count
   (print "\nwatch-with-count")
-  (os/mkdir "tmp/tmp2")
-  (os/sleep 1)
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
   (defn worker [parent]
     (def output @"")
-    (def monitor (watchful/create "tmp/tmp2"))
-    (thread/send parent :ready)
+    (def monitor (watchful/create dir))
     (watchful/watch monitor
                     (fn [path event-type] (buffer/push output "Detected"))
-                    [:count 1 :elapse 2.0])
+                    [:count 1 :elapse 2.0]
+                    (fn [] (thread/send parent :ready)))
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
-    (os/touch "tmp/tmp2")
+    (os/touch dir)
     (def result (thread/receive math/inf))
     (is (== "Detected" result))))
 
 
 (deftest watch-with-ignored-paths
   (print "\nwatch-with-ignored-paths")
-  (os/mkdir "tmp/tmp3")
-  (os/sleep 1)
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
   (defn worker [parent]
     (def output @"")
-    (def monitor (watchful/create "tmp/tmp3" ["foo.txt"]))
-    (thread/send parent :ready)
+    (def monitor (watchful/create dir ["foo.txt"]))
     (watchful/watch monitor
                     (fn [path event-type] (buffer/push output "Detected"))
-                    [:elapse 2.0])
+                    [:elapse 1.0]
+                    (fn [] (thread/send parent :ready)))
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
-    (spit "tmp/tmp3/foo.txt" "Hello world")
+    (spit (string dir "/foo.txt") "Hello world")
     (def result (thread/receive math/inf))
     (is (== "" result))))
 
 
 (deftest watch-with-ignored-events
   (print "\nwatch-with-ignored-events")
-  (os/mkdir "tmp/tmp4")
-  (os/sleep 1)
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
   (defn worker [parent]
     (def output @"")
-    (def monitor (watchful/create "tmp/tmp4" [] [:created :modified]))
-    (thread/send parent :ready)
+    (def monitor (watchful/create dir [] [:created :modified]))
     (watchful/watch monitor
                     (fn [path event-type] (buffer/push output "Detected"))
-                    [:elapse 2.0])
+                    [:elapse 1.0]
+                    (fn [] (thread/send parent :ready)))
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
-    (spit "tmp/tmp4/foo.txt" "Hello world")
+    (spit (string dir "/foo.txt") "Hello world")
     (def result (thread/receive math/inf))
     (is (== "" result))))
 
 
 (defer (rimraf "tmp")
   (os/mkdir "tmp")
-  (run-tests!))
+  (run-tests! :exit-on-fail false))

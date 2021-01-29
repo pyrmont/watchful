@@ -20,15 +20,16 @@ static char *path_for_wd(watchful_stream_t *stream, int wd) {
 }
 
 static int handle_event(watchful_stream_t *stream) {
+    debug_print("Event handler called\n");
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
 
-    /* if (stream->delay) { */
-    /*     int seconds = (int)stream->delay; */
-    /*     int nanoseconds = (int)((stream->delay - seconds) * 100000000); */
-    /*     struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, }; */
-    /*     nanosleep(&duration, NULL); */
-    /* } */
+    if (stream->delay) {
+        int seconds = (int)stream->delay;
+        int nanoseconds = (int)((stream->delay - seconds) * 100000000);
+        struct timespec duration = { .tv_sec = seconds, .tv_nsec = nanoseconds, };
+        nanosleep(&duration, NULL);
+    }
 
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
@@ -92,7 +93,7 @@ static int handle_event(watchful_stream_t *stream) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
         event->type = event_type;
-        event->path = (notify_event->len) ? notify_event->name : stream->wm->path;
+        event->path = path;
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
@@ -221,7 +222,7 @@ static int setup(watchful_stream_t *stream) {
     DIR *dir = opendir(path);
     error = add_watches(stream, path, dir);
     free(path);
-    closedir(dir);
+    if (dir) closedir(dir);
     if (error) return 1;
 
     error = start_loop(stream);

@@ -42,7 +42,7 @@ static int watchful_monitor_gc(void *p, size_t size) {
         free((uint8_t *)monitor->path);
         monitor->path = NULL;
     }
-    if (monitor->excludes->len != 0) {
+    if (monitor->excludes != NULL) {
         for (size_t i = 0; i < monitor->excludes->len; i++) {
             free((char *)monitor->excludes->paths[i]);
         }
@@ -74,6 +74,21 @@ static const JanetAbstractType watchful_monitor_type = {
 };
 
 /* Helper Functions */
+
+static int watchful_check_path(const uint8_t *path, int *is_dir) {
+#ifdef JANET_WINDOWS
+    struct _stat st;
+    int error = _stat((char *)path, &st);
+    if (error) return 1;
+    if (st.st_mode & _S_IFDIR) *is_dir = 1;
+#else
+    struct stat st;
+    int error = stat((char *)path, &st);
+    if (error) return 1;
+    if (S_ISDIR(st.st_mode)) *is_dir = 1;
+#endif
+    return 0;
+}
 
 static JanetThread *watchful_current_thread() {
     JanetCFunction cfun = janet_unwrap_cfunction(janet_resolve_core("thread/current"));
@@ -143,7 +158,7 @@ static int watchful_set_excludes(watchful_monitor_t *wm, JanetView exclude_paths
     return 0;
 }
 
-static int watchful_set_path(watchful_monitor_t *wm, const uint8_t *path, size_t max_len) {
+static int watchful_set_path(watchful_monitor_t *wm, const uint8_t *path, size_t max_len, int is_dir) {
     size_t path_len = strlen((char *)path);
 
     if (path_len > max_len) return 1;
@@ -155,7 +170,11 @@ static int watchful_set_path(watchful_monitor_t *wm, const uint8_t *path, size_t
         memcpy(buf, path, path_len);
         if (path[path_len - 1] == '/') path_len--;
     } else {
+#ifdef JANET_WINDOWS
+        _getcwd(buf, max_len);
+#else
         getcwd(buf, max_len);
+#endif
         size_t cwd_len = strlen(buf);
         buf[cwd_len] = '/';
         buf_len = cwd_len + 1;
@@ -167,8 +186,12 @@ static int watchful_set_path(watchful_monitor_t *wm, const uint8_t *path, size_t
         return 1;
     }
 
-    buf[buf_len + path_len] = '/';
-    buf[buf_len + path_len + 1] = '\0';
+    if (is_dir) {
+        buf[buf_len + path_len] = '/';
+        buf[buf_len + path_len + 1] = '\0';
+    } else {
+        buf[buf_len + path_len] = '\0';
+    }
     debug_print("The path being watched is %s\n", buf);
 
     wm->path = (const uint8_t *)buf;
@@ -223,7 +246,11 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
     wm->events = 0;
 
     int error = 0;
-    error = watchful_set_path(wm, path, 1024);
+    int is_dir = 0;
+    error = watchful_check_path(path, &is_dir);
+    if (error) janet_panic("invalid path");
+
+    error = watchful_set_path(wm, path, 1024, is_dir);
     if (error) janet_panic("path too long");
 
     error = watchful_set_excludes(wm, exclude_paths);
@@ -236,13 +263,14 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
 }
 
 static Janet cfun_watch(int32_t argc, Janet *argv) {
-    janet_arity(argc, 2, 3);
+    janet_arity(argc, 2, 4);
 
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(argv, 0, &watchful_monitor_type);
-    JanetFunction *cb = janet_getfunction(argv, 1);
-    JanetTuple head = (argc == 3) ? janet_gettuple(argv, 2) : NULL;
+    JanetFunction *event_cb = janet_getfunction(argv, 1);
+    JanetTuple head = (argc >= 3) ? janet_gettuple(argv, 2) : NULL;
+    JanetFunction *ready_cb = (argc == 4) ? janet_getfunction(argv, 3) : NULL;
 
-    if (argc == 3 && janet_tuple_length(head) % 2 != 0) janet_panicf("missing option value");
+    if (argc >= 3 && janet_tuple_length(head) % 2 != 0) janet_panicf("missing option value");
 
     double count = watchful_option_number(head, "count", INFINITY);
     double elapse = watchful_option_number(head, "elapse", INFINITY);
@@ -256,6 +284,19 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
     wm->backend->setup(stream);
     debug_print("Setup complete\n");
 
+    if (ready_cb != NULL) {
+        JanetTuple args = janet_tuple_n(NULL, 0);
+        JanetFiber *ready_f = janet_fiber(ready_cb, 64, 0, args);
+        ready_f->env = (janet_current_fiber())->env;
+        Janet out;
+        JanetSignal sig = janet_continue(ready_f, janet_wrap_nil(), &out);
+        if (sig != JANET_SIGNAL_OK && sig != JANET_SIGNAL_YIELD) {
+            janet_stacktrace(ready_f, out);
+            janet_printf("top level signal(%d): %v\n", sig, out);
+        }
+        debug_print("Called ready callback\n");
+    }
+
     double counted = 0.0;
     double elapsed = 0.0;
     time_t start = time(0);
@@ -267,11 +308,11 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
             watchful_event_t *event = (watchful_event_t *)janet_unwrap_pointer(out);
             Janet tup[2] = {janet_cstringv(event->path), janet_wrap_integer(event->type)};
             JanetTuple args = janet_tuple_n(tup, 2);
-            JanetFiber *cb_f = janet_fiber(cb, 64, 2, args);
-            cb_f->env = (janet_current_fiber())->env;
-            JanetSignal sig = janet_continue(cb_f, janet_wrap_nil(), &out);
+            JanetFiber *event_f = janet_fiber(event_cb, 64, 2, args);
+            event_f->env = (janet_current_fiber())->env;
+            JanetSignal sig = janet_continue(event_f, janet_wrap_nil(), &out);
             if (sig != JANET_SIGNAL_OK && sig != JANET_SIGNAL_YIELD) {
-                janet_stacktrace(cb_f, out);
+                janet_stacktrace(event_f, out);
                 janet_printf("top level signal(%d): %v\n", sig, out);
             }
             free(event->path);
@@ -309,12 +350,20 @@ static const JanetReg cfuns[] = {
      "If a backend is selected that is not supported, the function will panic."
     },
     {"watch", cfun_watch,
-     "(watchful/watch monitor cb &opt options)\n\n"
-     "Watch `monitor` and execute the function `cb` on changes\n\n"
-     "The watch can optionally include `:count <integer>` and/or `:elapse "
-     "<double>`. The integer after `:count` is the number of changes that "
-     "should be monitored before the watch terminates. The double after "
-     "`:elapse` is the number of seconds to wait until the watch terminates."
+     "(watchful/watch monitor event-cb &opt conditions ready-cb)\n\n"
+     "Watch `monitor` and call the function `event-cb` on file system events "
+     "with optional termination conditions and a ready callback\n\n"
+     "The `event-cb` function is a function that takes two arguments: `path` "
+     "is the path of the file triggering the event and `event-types` is a "
+     "tuple of the event types that occurred.\n\n"
+     "Supported termination conditons are `:count <integer>` and "
+     "`:elapse <double>`. The integer after `:count` is the number of events "
+     "that will be monitored before the watch terminates. The double after "
+     "`:elapse` is the number of seconds to wait until the watch terminates. "
+     "If both conditions are provided, the watch will terminate when the "
+     "earlier condition is met.\n\n"
+     "The ready callback is a function that takes no arguments and is called "
+     "after the watch begins."
     },
     {NULL, NULL, NULL}
 };
