@@ -117,7 +117,7 @@ char *watchful_extend_path(char *path, char *name, int is_dir);
 int watchful_is_excluded(char *path, watchful_excludes_t *excludes);
 
 /* Debugging Functions */
-#define WATCHFUL_DEBUG 1
+#define WATCHFUL_DEBUG 0
 #define debug_print(...) \
     do { if (WATCHFUL_DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
 

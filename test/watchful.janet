@@ -13,7 +13,6 @@
 
 
 (deftest watch-with-timeout
-  (print "\nwatch-with-timeout")
   (def dir (string "tmp/" (gensym)))
   (os/mkdir dir)
   (def start (os/mktime (os/date)))
@@ -25,7 +24,6 @@
 
 
 (deftest watch-with-count
-  (print "\nwatch-with-count")
   (def dir (string "tmp/" (gensym)))
   (os/mkdir dir)
   (defn worker [parent]
@@ -44,7 +42,6 @@
 
 
 (deftest watch-with-ignored-paths
-  (print "\nwatch-with-ignored-paths")
   (def dir (string "tmp/" (gensym)))
   (os/mkdir dir)
   (defn worker [parent]
@@ -63,7 +60,6 @@
 
 
 (deftest watch-with-ignored-events
-  (print "\nwatch-with-ignored-events")
   (def dir (string "tmp/" (gensym)))
   (os/mkdir dir)
   (defn worker [parent]
