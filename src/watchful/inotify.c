@@ -33,7 +33,6 @@ static int handle_event(watchful_stream_t *stream) {
     int size = read(stream->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
 
-    char *prev_path = NULL;
     for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
         int event_type = 0;
         notify_event = (const struct inotify_event *)ptr;
@@ -64,49 +63,36 @@ static int handle_event(watchful_stream_t *stream) {
             continue;
         }
 
-        /* Print event type */
-        if (event_type == WFLAG_CREATED)
-            debug_print("Created: ");
-        if (event_type == WFLAG_DELETED)
-            debug_print("Deleted: ");
-        if (event_type == WFLAG_MOVED)
-            debug_print("Moved: ");
-        if (event_type == WFLAG_MODIFIED)
-            debug_print("Modified: ");
+        if (WATCHFUL_DEBUG) {
+            debug_print("Event: ");
 
-        /* Print the name of the file */
-        if (notify_event->len)
-            debug_print("%s", notify_event->name);
-        else
-            debug_print("%s", stream->wm->path);
+            /* Print event type */
+            if (event_type & WFLAG_CREATED)
+                debug_print("[Created] ");
+            if (event_type & WFLAG_DELETED)
+                debug_print("[Deleted] ");
+            if (event_type & WFLAG_MOVED)
+                debug_print("[Moved] ");
+            if (event_type & WFLAG_MODIFIED)
+                debug_print("[Modified] ");
 
-        /* Print type of filesystem object */
-        if (notify_event->mask & IN_ISDIR)
-            debug_print(" [directory]\n");
-        else
-            debug_print(" [file]\n");
+            /* Print the name of the file */
+            if (notify_event->len)
+                debug_print("%s", notify_event->name);
+            else
+                debug_print("%s", stream->wm->path);
 
-        if (prev_path == NULL) {
-            prev_path = path;
-        } else if (!strcmp(path, prev_path)) {
-            free(prev_path);
-            prev_path = path;
-        } else {
-            watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
-
-            event->type = event_type;
-            event->path = prev_path;
-
-            janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
-            prev_path = NULL;
+            /* Print type of filesystem object */
+            if (notify_event->mask & IN_ISDIR)
+                debug_print(" [directory]\n");
+            else
+                debug_print(" [file]\n");
         }
-    }
 
-    if (prev_path != NULL) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
-        event->type = 0;
-        event->path = prev_path;
+        event->type = event_type;
+        event->path = (notify_event->len) ? notify_event->name : stream->wm->path;
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }

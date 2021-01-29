@@ -18,34 +18,56 @@ static void callback(
     const FSEventStreamEventFlags eventFlags[],
     const FSEventStreamEventId eventIds[])
 {
+    debug_print("Callback called\n");
     char **paths = (char **)eventPaths;
 
     watchful_stream_t *stream = (watchful_stream_t *)clientCallBackInfo;
 
-    char *prev_path = NULL;
     for (size_t i = 0; i < numEvents; i++) {
+        int event_type = 0;
+        if (eventFlags[i] & kFSEventStreamEventFlagItemCreated)
+            event_type = event_type | WFLAG_CREATED;
+        if (eventFlags[i] & kFSEventStreamEventFlagItemRemoved)
+            event_type = event_type | WFLAG_DELETED;
+        if (eventFlags[i] & kFSEventStreamEventFlagItemRenamed)
+            event_type = event_type | WFLAG_MOVED;
+        if ((eventFlags[i] & kFSEventStreamEventFlagItemModified) ||
+            (eventFlags[i] & kFSEventStreamEventFlagItemXattrMod) ||
+            (eventFlags[i] & kFSEventStreamEventFlagItemInodeMetaMod))
+            event_type = event_type | WFLAG_MODIFIED;
+
+        if (WATCHFUL_DEBUG) {
+            debug_print("Event: ");
+
+            /* Print event type */
+            if (event_type & WFLAG_CREATED)
+                debug_print("[Created] ");
+            if (event_type & WFLAG_DELETED)
+                debug_print("[Deleted] ");
+            if (event_type & WFLAG_MOVED)
+                debug_print("[Moved] ");
+            if (event_type & WFLAG_MODIFIED)
+                debug_print("[Modified] ");
+
+            /* Print the name of the file */
+            debug_print("%s", paths[i]);
+
+            /* Print type of filesystem object */
+            if (eventFlags[i] & kFSEventStreamEventFlagItemIsDir) {
+                debug_print(" [directory]\n");
+            } else if (eventFlags[i] & kFSEventStreamEventFlagItemIsFile) {
+                debug_print(" [file]\n");
+            }
+        }
+
+        if (!event_type || !(stream->wm->events & event_type)) continue;
+
         if (watchful_is_excluded(paths[i], stream->wm->excludes)) continue;
 
-        if (prev_path == NULL) {
-            prev_path = paths[i];
-        } else if (!strcmp(paths[i], prev_path)) {
-            prev_path = paths[i];
-        } else {
-            watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
-
-            event->type = 0;
-            event->path = watchful_clone_string(prev_path);
-
-            janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
-            prev_path = NULL;
-        }
-    }
-
-    if (prev_path != NULL) {
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
-        event->type = 0;
-        event->path = watchful_clone_string(prev_path);
+        event->type = event_type;
+        event->path = watchful_clone_string(paths[i]);
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
@@ -97,6 +119,7 @@ static int setup(watchful_stream_t *stream) {
     CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
 
     CFAbsoluteTime latency = stream->delay; /* Latency in seconds */
+    /* CFAbsoluteTime latency = 0; */
 
     stream->ref = FSEventStreamCreate(
         NULL,
@@ -106,7 +129,8 @@ static int setup(watchful_stream_t *stream) {
         kFSEventStreamEventIdSinceNow, /* Or a previous event ID */
         latency,
         /* kFSEventStreamCreateFlagNone /1* Flags explained in reference *1/ */
-        kFSEventStreamCreateFlagFileEvents
+        /* kFSEventStreamCreateFlagFileEvents */
+        kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents
     );
 
     int error = start_loop(stream);
@@ -125,6 +149,7 @@ static int teardown(watchful_stream_t *stream) {
         pthread_join(stream->thread, NULL);
     }
 
+    FSEventStreamFlushSync(stream->ref);
     FSEventStreamStop(stream->ref);
     FSEventStreamInvalidate(stream->ref);
     FSEventStreamRelease(stream->ref);
