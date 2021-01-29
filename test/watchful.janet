@@ -18,7 +18,7 @@
   (os/mkdir dir)
   (def start (os/mktime (os/date)))
   (watchful/watch (watchful/create dir)
-                  (fn [path event-type] nil)
+                  (fn [path event-types] nil)
                   [:elapse 1.0])
   (def end (os/mktime (os/date)))
   (is (>= (- end start) 1)))
@@ -32,7 +32,7 @@
     (def output @"")
     (def monitor (watchful/create dir))
     (watchful/watch monitor
-                    (fn [path event-type] (buffer/push output "Detected"))
+                    (fn [path event-types] (buffer/push output "Detected"))
                     [:count 1 :elapse 2.0]
                     (fn [] (thread/send parent :ready)))
     (thread/send parent output))
@@ -51,7 +51,7 @@
     (def output @"")
     (def monitor (watchful/create dir ["foo.txt"]))
     (watchful/watch monitor
-                    (fn [path event-type] (buffer/push output "Detected"))
+                    (fn [path event-types] (buffer/push output "Detected"))
                     [:elapse 1.0]
                     (fn [] (thread/send parent :ready)))
     (thread/send parent output))
@@ -70,7 +70,7 @@
     (def output @"")
     (def monitor (watchful/create dir [] [:created :modified]))
     (watchful/watch monitor
-                    (fn [path event-type] (buffer/push output "Detected"))
+                    (fn [path event-types] (buffer/push output "Detected"))
                     [:elapse 1.0]
                     (fn [] (thread/send parent :ready)))
     (thread/send parent output))

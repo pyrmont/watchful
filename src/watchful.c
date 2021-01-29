@@ -198,6 +198,25 @@ static int watchful_set_path(watchful_monitor_t *wm, const uint8_t *path, size_t
     return 0;
 }
 
+static const Janet *watchful_tuple_event_types(int types) {
+    Janet values[4];
+    int i = 0;
+
+    if (types & WFLAG_CREATED)
+        values[i++] = janet_ckeywordv("created");
+    if (types & WFLAG_DELETED)
+        values[i++] = janet_ckeywordv("deleted");
+    if (types & WFLAG_MOVED)
+        values[i++] = janet_ckeywordv("moved");
+    if (types & WFLAG_MODIFIED)
+        values[i++] = janet_ckeywordv("modified");
+
+    const Janet *result = (i == 0) ? janet_tuple_n(NULL, i) :
+                                     janet_tuple_n(values, i);
+    janet_tuple_flag(result) |= JANET_TUPLE_FLAG_BRACKETCTOR;
+    return result;
+}
+
 /* Exposed Functions */
 
 static Janet cfun_create(int32_t argc, Janet *argv) {
@@ -306,7 +325,8 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
         int timed_out = janet_thread_receive(&out, timeout);
         if (!timed_out) {
             watchful_event_t *event = (watchful_event_t *)janet_unwrap_pointer(out);
-            Janet tup[2] = {janet_cstringv(event->path), janet_wrap_integer(event->type)};
+            Janet const *event_types = watchful_tuple_event_types(event->type);
+            Janet tup[2] = {janet_cstringv(event->path), janet_wrap_tuple(event_types)};
             JanetTuple args = janet_tuple_n(tup, 2);
             JanetFiber *event_f = janet_fiber(event_cb, 64, 2, args);
             event_f->env = (janet_current_fiber())->env;

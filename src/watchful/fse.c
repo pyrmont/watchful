@@ -39,7 +39,6 @@ static void callback(
         if (WATCHFUL_DEBUG) {
             debug_print("Event: ");
 
-            /* Print event type */
             if (event_type & WFLAG_CREATED)
                 debug_print("[Created] ");
             if (event_type & WFLAG_DELETED)
@@ -49,10 +48,8 @@ static void callback(
             if (event_type & WFLAG_MODIFIED)
                 debug_print("[Modified] ");
 
-            /* Print the name of the file */
             debug_print("%s", paths[i]);
 
-            /* Print type of filesystem object */
             if (eventFlags[i] & kFSEventStreamEventFlagItemIsDir) {
                 debug_print(" [directory]\n");
             } else if (eventFlags[i] & kFSEventStreamEventFlagItemIsFile) {

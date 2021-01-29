@@ -55,9 +55,12 @@ static int handle_event(watchful_stream_t *stream) {
         char *path_to_watch = path_for_wd(stream, notify_event->wd);
         if (path_to_watch == NULL) continue;
 
-        char *path = (notify_event->mask & IN_ISDIR) ?
+        char *path = (!notify_event->len) ?
             watchful_clone_string(path_to_watch) :
-            watchful_extend_path(path_to_watch, (char *)notify_event->name, 0);
+            watchful_extend_path(path_to_watch,
+                                 (char *)notify_event->name,
+                                 ((notify_event->mask & IN_ISDIR) ? 1 : 0));
+        if (path == NULL) continue;
 
         if (watchful_is_excluded(path, stream->wm->excludes)) {
             free(path);
@@ -67,7 +70,6 @@ static int handle_event(watchful_stream_t *stream) {
         if (WATCHFUL_DEBUG) {
             debug_print("Event: ");
 
-            /* Print event type */
             if (event_type & WFLAG_CREATED)
                 debug_print("[Created] ");
             if (event_type & WFLAG_DELETED)
@@ -77,13 +79,11 @@ static int handle_event(watchful_stream_t *stream) {
             if (event_type & WFLAG_MODIFIED)
                 debug_print("[Modified] ");
 
-            /* Print the name of the file */
             if (notify_event->len)
                 debug_print("%s", notify_event->name);
             else
                 debug_print("%s", stream->wm->path);
 
-            /* Print type of filesystem object */
             if (notify_event->mask & IN_ISDIR)
                 debug_print(" [directory]\n");
             else
