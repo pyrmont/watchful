@@ -22,7 +22,7 @@ By default, Watchful will watch for creation, deletion, movement and modificatio
 
   - The user can specify the `backend` to use. The backend can be one of     `:fse` or `:inotify`. If the specified backend is not supported on     the host platform, the function will panic.
 
-[1]: src/watchful.c#L383
+[1]: src/watchful.c#L384
 
 ## watch
 
@@ -48,5 +48,5 @@ In addition, a user can specify the following `options`:
 
   - The `:on-ready` callback is a function that is called after the     watch begins. This can be used when the watch is run in a thread to     send a message to the parent thread.
 
-[2]: src/watchful.c#L400
+[2]: src/watchful.c#L401
 
