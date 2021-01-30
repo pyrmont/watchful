@@ -25,6 +25,7 @@ char *watchful_extend_path(char *path, char *name, int is_dir) {
 }
 
 int watchful_is_excluded(char *path, watchful_excludes_t *excludes) {
+    debug_print("The possibly excluded path is %s\n", path);
     if (excludes->len == 0) return 0;
     for (size_t i = 0; i < (size_t)excludes->len; i++) {
         const char *exclude = (const char *)excludes->paths[i];

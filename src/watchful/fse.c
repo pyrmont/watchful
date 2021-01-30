@@ -10,6 +10,32 @@ watchful_backend_t watchful_fse = {
 
 #else
 
+static int compare_paths(char *p1, char *p2) {
+    size_t p1_len = strlen(p1);
+    size_t p2_len = strlen(p2);
+    size_t min_len = p1_len < p2_len ? p1_len : p2_len;
+    for (size_t i = 0; i < min_len; i++) {
+        if (p1[i] != p2[i]) return 1;
+    }
+
+    return p2_len > p1_len ? -1 : 0;
+}
+
+static int setEventType(FSEventStreamEventFlags flags) {
+    int event_type = 0;
+    if (flags & kFSEventStreamEventFlagItemCreated)
+        event_type = event_type | WFLAG_CREATED;
+    if (flags & kFSEventStreamEventFlagItemRemoved)
+        event_type = event_type | WFLAG_DELETED;
+    if (flags & kFSEventStreamEventFlagItemRenamed)
+        event_type = event_type | WFLAG_MOVED;
+    if ((flags & kFSEventStreamEventFlagItemModified) ||
+        (flags & kFSEventStreamEventFlagItemXattrMod) ||
+        (flags & kFSEventStreamEventFlagItemInodeMetaMod))
+        event_type = event_type | WFLAG_MODIFIED;
+    return event_type;
+}
+
 static void callback(
     ConstFSEventStreamRef streamRef,
     void *clientCallBackInfo,
@@ -20,23 +46,32 @@ static void callback(
 {
     debug_print("Callback called\n");
     char **paths = (char **)eventPaths;
-
     watchful_stream_t *stream = (watchful_stream_t *)clientCallBackInfo;
+    int event_type = 0;
+    size_t uniques[numEvents];
+    size_t num_uniques = 0;
 
     for (size_t i = 0; i < numEvents; i++) {
-        int event_type = 0;
-        if (eventFlags[i] & kFSEventStreamEventFlagItemCreated)
-            event_type = event_type | WFLAG_CREATED;
-        if (eventFlags[i] & kFSEventStreamEventFlagItemRemoved)
-            event_type = event_type | WFLAG_DELETED;
-        if (eventFlags[i] & kFSEventStreamEventFlagItemRenamed)
-            event_type = event_type | WFLAG_MOVED;
-        if ((eventFlags[i] & kFSEventStreamEventFlagItemModified) ||
-            (eventFlags[i] & kFSEventStreamEventFlagItemXattrMod) ||
-            (eventFlags[i] & kFSEventStreamEventFlagItemInodeMetaMod))
-            event_type = event_type | WFLAG_MODIFIED;
+        int is_unique = 1;
+        for (size_t j = 0; j < num_uniques; j++) {
+            switch (compare_paths(paths[uniques[j]], paths[i])) {
+                case -1:
+                    uniques[j] = i;
+                    is_unique = 0;
+                    break;
+                case 0:
+                    is_unique = 0;
+                    break;
+                case 1:
+                    break;
+            }
+            if (!is_unique) break;
+        }
+
+        if (is_unique) uniques[num_uniques++] = i;
 
         if (WATCHFUL_DEBUG) {
+            event_type = setEventType(eventFlags[i]);
             debug_print("Event: ");
 
             if (event_type & WFLAG_CREATED)
@@ -56,15 +91,20 @@ static void callback(
                 debug_print(" [file]\n");
             }
         }
+    }
 
-        if (!event_type || !(stream->wm->events & event_type)) continue;
+    for (size_t i = 0; i < num_uniques; i++) {
+        size_t selection = uniques[i];
+        debug_print("Unique path: %s\n", paths[selection]);
+        event_type = setEventType(eventFlags[selection]);
 
-        if (watchful_is_excluded(paths[i], stream->wm->excludes)) continue;
+        if (!event_type || !(stream->wm->events & event_type)) return;
+        if (watchful_is_excluded(paths[selection], stream->wm->excludes)) return;
 
         watchful_event_t *event = (watchful_event_t *)malloc(sizeof(watchful_event_t));
 
         event->type = event_type;
-        event->path = watchful_clone_string(paths[i]);
+        event->path = watchful_clone_string(paths[selection]);
 
         janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
     }
@@ -115,8 +155,8 @@ static int setup(watchful_stream_t *stream) {
     CFStringRef path = CFStringCreateWithCString(NULL, (const char *)stream->wm->path, kCFStringEncodingUTF8);
     CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
 
-    CFAbsoluteTime latency = stream->delay; /* Latency in seconds */
-    /* CFAbsoluteTime latency = 0; */
+    /* CFAbsoluteTime latency = stream->delay; /1* Latency in seconds *1/ */
+    CFAbsoluteTime latency = 0;
 
     stream->ref = FSEventStreamCreate(
         NULL,

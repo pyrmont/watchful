@@ -50,7 +50,7 @@
     (def monitor (watchful/create dir ["foo.txt"]))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    {:elapse 1.0
+                    {:elapse 2.0
                      :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
@@ -68,7 +68,7 @@
     (def monitor (watchful/create dir [] [:created :modified]))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    {:elapse 1.0
+                    {:elapse 2.0
                      :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
@@ -86,13 +86,14 @@
     (def monitor (watchful/create dir []))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    {:elapse 1.0
-                     :freq 2.0
+                    {:elapse 2.0
+                     :freq 5.0
                      :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
     (spit (string dir "/foo.txt") "Hello world")
+    (spit (string dir "/bar.txt") "Hello world")
     (def result (thread/receive math/inf))
     (is (== "Detected" result))))
 
@@ -105,14 +106,15 @@
     (def monitor (watchful/create dir []))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    {:elapse 1.0
+                    {:count 2
                      :freq 0.0
                      :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
     (spit (string dir "/foo.txt") "Hello world")
-    (def result (thread/receive math/inf))
+    (spit (string dir "/bar.txt") "Hello world")
+    (def result (thread/receive 10))
     (is (== "DetectedDetected" result))))
 
 

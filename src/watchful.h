@@ -16,6 +16,7 @@
 
 /* POSIX */
 #include <pthread.h>
+#include <sys/stat.h>
 
 #ifdef INOTIFY
 #include <dirent.h>
@@ -24,7 +25,6 @@
 #include <sys/inotify.h>
 #include <sys/select.h>
 #include <sys/signalfd.h>
-#include <sys/stat.h>
 #include <sys/types.h>
 #endif
 
