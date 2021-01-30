@@ -18,7 +18,7 @@
   (def start (os/mktime (os/date)))
   (watchful/watch (watchful/create dir)
                   (fn [path event-types] nil)
-                  [:elapse 1.0])
+                  {:elapse 1.0})
   (def end (os/mktime (os/date)))
   (is (>= (- end start) 1)))
 
@@ -31,9 +31,9 @@
     (def monitor (watchful/create dir))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    [:count 1 :elapse 2.0]
-                    0.0
-                    (fn [] (thread/send parent :ready)))
+                    {:count 1
+                     :elapse 2.0
+                     :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
@@ -50,9 +50,8 @@
     (def monitor (watchful/create dir ["foo.txt"]))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    [:elapse 1.0]
-                    0.0
-                    (fn [] (thread/send parent :ready)))
+                    {:elapse 1.0
+                     :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
@@ -69,9 +68,8 @@
     (def monitor (watchful/create dir [] [:created :modified]))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    [:elapse 1.0]
-                    0.0
-                    (fn [] (thread/send parent :ready)))
+                    {:elapse 1.0
+                     :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
@@ -88,9 +86,9 @@
     (def monitor (watchful/create dir []))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    [:elapse 1.0]
-                    2.0
-                    (fn [] (thread/send parent :ready)))
+                    {:elapse 1.0
+                     :freq 2.0
+                     :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
@@ -107,15 +105,26 @@
     (def monitor (watchful/create dir []))
     (watchful/watch monitor
                     (fn [path event-types] (buffer/push output "Detected"))
-                    [:elapse 1.0]
-                    0.0
-                    (fn [] (thread/send parent :ready)))
+                    {:elapse 1.0
+                     :freq 0.0
+                     :on-ready (fn [] (thread/send parent :ready))})
     (thread/send parent output))
   (thread/new worker)
   (when (= :ready (thread/receive 5))
     (spit (string dir "/foo.txt") "Hello world")
     (def result (thread/receive math/inf))
     (is (== "DetectedDetected" result))))
+
+
+(deftest watch-with-invalid-args
+  (def dir (string "tmp/" (gensym)))
+  (os/mkdir dir)
+  (def monitor (watchful/create dir []))
+  (def no-op (fn [path event-types] nil))
+  (is (thrown? "value for :count must be a number" (watchful/watch monitor no-op {:count "hello"})))
+  (is (thrown? "value for :elapse must be a number" (watchful/watch monitor no-op {:elapse "hello"})))
+  (is (thrown? "value for :freq must be a number" (watchful/watch monitor no-op {:freq "hello"})))
+  (is (thrown? "value for :on-ready must be a function" (watchful/watch monitor no-op {:on-ready "hello"}))))
 
 
 (defer (rimraf "tmp")

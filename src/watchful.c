@@ -95,15 +95,18 @@ static JanetThread *watchful_current_thread() {
     return (JanetThread *)janet_unwrap_abstract(cfun(0, NULL));
 }
 
-static double watchful_option_number(JanetTuple head, char *name, double dflt) {
-    size_t head_size = (head == NULL) ? 0 : janet_tuple_length(head);
+static int watchful_dict_get_function(JanetFunction **out, JanetDictView dict, char *key, JanetFunction *dflt) {
+    Janet val = janet_dictionary_get(dict.kvs, dict.cap, janet_ckeywordv(key));
+    if (!janet_checktypes(val, JANET_TFLAG_NIL | JANET_TFLAG_FUNCTION)) return 1;
+    *out = (janet_checktype(val, JANET_NIL)) ? dflt : janet_unwrap_function(val);
+    return 0;
+}
 
-    for (size_t i = 0; i < head_size; i += 2) {
-        if (!janet_cstrcmp(janet_getkeyword(head, i), name))
-            return janet_getnumber(head, i + 1);
-    }
-
-    return dflt;
+static int watchful_dict_get_number(double *out, JanetDictView dict, char *key, double dflt) {
+    Janet val = janet_dictionary_get(dict.kvs, dict.cap, janet_ckeywordv(key));
+    if (!janet_checktypes(val, JANET_TFLAG_NIL | JANET_TFLAG_NUMBER)) return 1;
+    *out = (janet_checktype(val, JANET_NIL)) ? dflt : janet_unwrap_number(val);
+    return 0;
 }
 
 static int watchful_set_events(watchful_monitor_t *wm, JanetView exclude_events) {
@@ -282,18 +285,36 @@ static Janet cfun_create(int32_t argc, Janet *argv) {
 }
 
 static Janet cfun_watch(int32_t argc, Janet *argv) {
-    janet_arity(argc, 2, 5);
+    janet_arity(argc, 2, 3);
 
     watchful_monitor_t *wm = (watchful_monitor_t *)janet_getabstract(argv, 0, &watchful_monitor_type);
     JanetFunction *event_cb = janet_getfunction(argv, 1);
-    JanetTuple head = (argc >= 3) ? janet_gettuple(argv, 2) : NULL;
-    double delay = (argc >= 4) ? janet_getnumber(argv, 3) : 1.0;
-    JanetFunction *ready_cb = (argc == 5) ? janet_getfunction(argv, 4) : NULL;
+    JanetDictView options;
+    if (argc < 3) {
+        options.kvs = NULL;
+        options.len = 0;
+        options.cap = 0;
+    } else {
+        options = janet_getdictionary(argv, 2);
+    }
 
-    if (argc >= 3 && janet_tuple_length(head) % 2 != 0) janet_panicf("missing option value");
+    int error = 0;
 
-    double count = watchful_option_number(head, "count", INFINITY);
-    double elapse = watchful_option_number(head, "elapse", INFINITY);
+    double count = 0;
+    error = watchful_dict_get_number(&count, options, "count", INFINITY);
+    if (error) janet_panic("value for :count must be a number");
+
+    double elapse = 0;
+    error = watchful_dict_get_number(&elapse, options, "elapse", INFINITY);
+    if (error) janet_panic("value for :elapse must be a number");
+
+    double delay = 0;
+    error = watchful_dict_get_number(&delay, options, "freq", 1.0);
+    if (error) janet_panic("value for :freq must be a number");
+
+    JanetFunction *ready_cb = NULL;
+    error = watchful_dict_get_function(&ready_cb, options, "on-ready", NULL);
+    if (error) janet_panic("value for :on-ready must be a function");
 
     watchful_stream_t *stream = (watchful_stream_t *)malloc(sizeof(watchful_stream_t));
     stream->wm = wm;
@@ -363,31 +384,42 @@ static const JanetReg cfuns[] = {
      "(watchful/create path &opt ignored-paths ignored-events backend)\n\n"
      "Create a monitor for `path`\n\n"
      "By default, Watchful will watch for creation, deletion, movement and "
-     "modification events. In addition to the path, the user can optionally "
-     "set:\n\n"
-     "- `ignored-paths`: (array/tuple) events on paths that include one of these "
-     "strings are ignored\n\n"
-     "- `ignored-events`: (array/tuple) events that match one of these events "
-     "(`:created`, `:deleted`, `:moved` and `:modified`) are ignored\n\n"
-     "- `backend`: (keyword) a keyword denoting the backend to use, one of "
-     "`:fse`, `:inotify`\n\n"
-     "If a backend is selected that is not supported, the function will panic."
+     "modification events. In addition:\n\n"
+     "  - The user can provide an array/tuple of strings in `ignored-paths`. "
+     "    If the path for an event includes an ignored path, the event is "
+     "    ignored. Ignored paths are matched using the wildmatch library. This "
+     "    allows `*` to match within path components and `**` to match "
+     "    subdirectories.\n\n"
+     "  - The user can provide an array/tuple of keywords in `ignored-events`. "
+     "    The events are `:created`, `:deleted`, `:moved` and `:modified`. If "
+     "    the detected event is one of these events it will be ignored.\n\n"
+     "  - The user can specify the `backend` to use. The backend can be one of "
+     "    `:fse` or `:inotify`. If the specified backend is not supported on "
+     "    the host platform, the function will panic."
     },
     {"watch", cfun_watch,
-     "(watchful/watch monitor on-event &opt conditions freq on-ready)\n\n"
-     "Watch `monitor` and call the function `on-event` on file system events "
-     "with optional termination conditions and an on-ready callback\n\n"
-     "The `on-event` callback is a function that takes two arguments: `path` "
-     "is the path of the file triggering the event and `event-types` is a "
-     "tuple of the event types that occurred.\n\n"
-     "Supported termination conditons are `:count <integer>` and "
-     "`:elapse <double>`. The integer after `:count` is the number of events "
-     "that will be monitored before the watch terminates. The double after "
-     "`:elapse` is the number of seconds to wait until the watch terminates. "
-     "If both conditions are provided, the watch will terminate when the "
-     "earlier condition is met.\n\n"
-     "The `on-ready` callback is a function that takes no arguments and is "
-     "called after the watch begins."
+     "(watchful/watch monitor on-event &opt options)\n\n"
+     "Watch `monitor` and call the function `on-event` on file system events\n\n"
+     "The watch uses a monitor created with Watchful's `create` function and "
+     "an `on-event` callback. The `on-event` callback is a function that takes "
+     "two arguments, `path` is the path of the file triggering the event and "
+     "`event-types` is a tuple of the event types that occurred.\n\n"
+     "By default, the `watch` function does not terminate and will block the "
+     "current thread. For this reason, in many cases the user will want to run "
+     "the watch in a separate thread.\n\n"
+     "In addition, a user can specify the following options:\n\n"
+     "  - The `:elapse` option specifies the number of seconds to wait until "
+     "    the watch finishes. If `:count` is also provided, the watch will "
+     "    terminate when the first condition is met.\n\n"
+     "  - The `:count` option specifies the number of events to watch until "
+     "    the watch finishes. If `:elapse` is also provided, the watch will "
+     "    terminate when the first condition is met.\n\n"
+     "  - The `:freq` option specifies the minimum number of seconds that must "
+     "    pass before the `on-event` callback is called. Events that occur "
+     "    during the interval are dropped.\n\n"
+     "  - The `:on-ready` callback is a function that is called after the "
+     "    watch begins. This can be used when the watch is run in a thread to "
+     "    send a message to the parent thread."
     },
     {NULL, NULL, NULL}
 };
