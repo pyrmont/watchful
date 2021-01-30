@@ -121,9 +121,10 @@
   (os/mkdir dir)
   (def monitor (watchful/create dir []))
   (def no-op (fn [path event-types] nil))
-  (is (thrown? "value for :count must be a number" (watchful/watch monitor no-op {:count "hello"})))
-  (is (thrown? "value for :elapse must be a number" (watchful/watch monitor no-op {:elapse "hello"})))
-  (is (thrown? "value for :freq must be a number" (watchful/watch monitor no-op {:freq "hello"})))
+  (is (thrown? "value for :count must be a positive number" (watchful/watch monitor no-op {:count "hello"})))
+  (is (thrown? "value for :elapse must be a positive number" (watchful/watch monitor no-op {:elapse "hello"})))
+  (is (thrown? "value for :freq must be a positive number" (watchful/watch monitor no-op {:freq "hello"})))
+  (is (thrown? "value for :freq must be a positive number" (watchful/watch monitor no-op {:freq -1})))
   (is (thrown? "value for :on-ready must be a function" (watchful/watch monitor no-op {:on-ready "hello"}))))
 
 

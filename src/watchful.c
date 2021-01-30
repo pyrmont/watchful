@@ -102,10 +102,11 @@ static int watchful_dict_get_function(JanetFunction **out, JanetDictView dict, c
     return 0;
 }
 
-static int watchful_dict_get_number(double *out, JanetDictView dict, char *key, double dflt) {
+static int watchful_dict_get_number(double *out, JanetDictView dict, char *key, double dflt, int only_positive) {
     Janet val = janet_dictionary_get(dict.kvs, dict.cap, janet_ckeywordv(key));
     if (!janet_checktypes(val, JANET_TFLAG_NIL | JANET_TFLAG_NUMBER)) return 1;
     *out = (janet_checktype(val, JANET_NIL)) ? dflt : janet_unwrap_number(val);
+    if (only_positive && *out < 0) return 1;
     return 0;
 }
 
@@ -301,16 +302,16 @@ static Janet cfun_watch(int32_t argc, Janet *argv) {
     int error = 0;
 
     double count = 0;
-    error = watchful_dict_get_number(&count, options, "count", INFINITY);
-    if (error) janet_panic("value for :count must be a number");
+    error = watchful_dict_get_number(&count, options, "count", INFINITY, 1);
+    if (error) janet_panic("value for :count must be a positive number");
 
     double elapse = 0;
-    error = watchful_dict_get_number(&elapse, options, "elapse", INFINITY);
-    if (error) janet_panic("value for :elapse must be a number");
+    error = watchful_dict_get_number(&elapse, options, "elapse", INFINITY, 1);
+    if (error) janet_panic("value for :elapse must be a positive number");
 
     double delay = 0;
-    error = watchful_dict_get_number(&delay, options, "freq", 1.0);
-    if (error) janet_panic("value for :freq must be a number");
+    error = watchful_dict_get_number(&delay, options, "freq", 1.0, 1);
+    if (error) janet_panic("value for :freq must be a positive number");
 
     JanetFunction *ready_cb = NULL;
     error = watchful_dict_get_function(&ready_cb, options, "on-ready", NULL);
