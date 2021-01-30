@@ -38,13 +38,13 @@ The watch uses a monitor created with Watchful's `create` function and an `on-ev
 
 By default, the `watch` function does not terminate and will block the current thread. For this reason, in many cases the user will want to run the watch in a separate thread.
 
-In addition, a user can specify the following options:
-
-  - The `:elapse` option specifies the number of seconds to wait until     the watch finishes. If `:count` is also provided, the watch will     terminate when the first condition is met.
+In addition, a user can specify the following `options`:
 
   - The `:count` option specifies the number of events to watch until     the watch finishes. If `:elapse` is also provided, the watch will     terminate when the first condition is met.
 
-  - The `:freq` option specifies the minimum number of seconds that must     pass before the `on-event` callback is called. Events that occur     during the interval are dropped.
+  - The `:elapse` option specifies the number of seconds to wait until     the watch finishes. If `:count` is also provided, the watch will     terminate when the first condition is met.
+
+  - The `:freq` option specifies the minimum number of seconds that must     pass before the `on-event` callback is called. Events that occur     during the interval are dropped. By default, the frequency is set to    1. If the frequency is set to zero, no events will be dropped.
 
   - The `:on-ready` callback is a function that is called after the     watch begins. This can be used when the watch is run in a thread to     send a message to the parent thread.
 

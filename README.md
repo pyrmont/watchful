@@ -8,6 +8,15 @@
 Watchful is a file-watching module for Janet. It uses inotify on Linux systems
 and FSEvents on macOS.
 
+Watchful supports watches on files and directories (including subdirectories).
+In addition, a user can set:
+
+- paths to ignore (using [wildmatch][] patterns);
+- a termination condition after a set number of events;
+- a termination condition after a set duration;
+- a minimum delay between event detection (default is 1 second); and
+- a function to call once the watch begins.
+
 ## Requirements
 
 Watchful is supported on Linux and macOS. Windows is not yet supported.
