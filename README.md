@@ -17,6 +17,8 @@ In addition, a user can set:
 - a minimum delay between event detection (default is 1 second); and
 - a function to call once the watch begins.
 
+[wildmatch]: https://github.com/davvid/wildmatch
+
 ## Requirements
 
 Watchful is supported on Linux and macOS. Windows is not yet supported.
