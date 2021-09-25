@@ -10,9 +10,14 @@
 #endif
 
 /* General */
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "watchful/wildmatch.h"
+
+/* Wildmatch */
+#include "wildmatch.h"
 
 /* POSIX */
 #include <pthread.h>
@@ -32,78 +37,84 @@
 #include <CoreServices/CoreServices.h>
 #endif
 
-/* Janet */
-#include <janet.h>
-
 /* Constants */
-#define WFLAG_ALL      0xF00
-#define WFLAG_CREATED  0x100
-#define WFLAG_DELETED  0x200
-#define WFLAG_MOVED    0x400
-#define WFLAG_MODIFIED 0x800
-
-/* Type Aliases */
-typedef pthread_t watchful_thread_t;
+#define WATCHFUL_EVENT_ALL      0xF
+#define WATCHFUL_EVENT_NONE     0x0
+#define WATCHFUL_EVENT_CREATED  0x1
+#define WATCHFUL_EVENT_DELETED  0x2
+#define WATCHFUL_EVENT_MOVED    0x4
+#define WATCHFUL_EVENT_MODIFIED 0x8
 
 /* Forward Declarations */
-struct watchful_monitor_t;
-struct watchful_backend_t;
-struct watchful_stream_t;
-struct watchful_watch_t;
+struct WatchfulWatch;
+struct WatchfulEvent;
+struct WatchfulBackend;
+struct WatchfulMonitor;
+/* struct WatchfulStream; */
+
+/* Type Aliases */
+typedef pthread_t WatchfulThread;
+typedef int (*WatchfulCallback)(struct WatchfulEvent *);
 
 /* Types */
 
-typedef struct watchful_backend_t {
-  const char *name;
-  int (*setup)(struct watchful_stream_t *stream);
-  int (*teardown)(struct watchful_stream_t *stream);
-} watchful_backend_t;
+typedef struct WatchfulWatch {
+  int wd;
+  char *path;
+} WatchfulWatch;
 
-typedef struct watchful_excludes_t {
+typedef struct WatchfulEvent {
+  int type;
+  char *path;
+} WatchfulEvent;
+
+typedef struct WatchfulBackend {
+  const char *name;
+  int (*setup)(struct WatchfulMonitor *wm);
+  int (*teardown)(struct WatchfulMonitor *wm);
+} WatchfulBackend;
+
+typedef struct WatchfulExcludes {
   char **paths;
   size_t len;
-} watchful_excludes_t;
+} WatchfulExcludes;
 
-typedef struct watchful_monitor_t {
-  struct watchful_backend_t *backend;
-  const uint8_t *path;
-  watchful_excludes_t *excludes;
+typedef struct WatchfulMonitor {
+  WatchfulBackend *backend;
+  char *path;
+  WatchfulExcludes *excludes;
   int events;
-} watchful_monitor_t;
-
-typedef struct watchful_stream_t {
-  struct watchful_monitor_t *wm;
-  watchful_thread_t thread;
-  JanetThread *parent;
+  int (*callback)(WatchfulEvent *event);
+  WatchfulThread thread;
   double delay;
-
 #ifdef INOTIFY
   int fd;
-  size_t watch_num;
-  struct watchful_watch_t **watches;
-#endif
-
-#ifdef FSE
+  size_t watches_len;
+  WatchfulWatch **watches;
+#elif FSE
   FSEventStreamRef ref;
   CFRunLoopRef loop;
 #endif
-} watchful_stream_t;
+} WatchfulMonitor;
 
-typedef struct watchful_watch_t {
-#ifdef INOTIFY
-  int wd;
-  const uint8_t *path;
-#endif
-} watchful_watch_t;
-
-typedef struct watchful_event_t {
-  int type;
-  char *path;
-} watchful_event_t;
+/* typedef struct WatchfulStream { */
+/*   WatchfulMonitor *wm; */
+/*   WatchfulThread thread; */
+/*   int (*callback)(WatchfulEvent *event); */
+/*   double delay; */
+/* #ifdef INOTIFY */
+/*   int fd; */
+/*   size_t watches_len; */
+/*   WatchfulWatch **watches; */
+/* #elif FSE */
+/*   FSEventStreamRef ref; */
+/*   CFRunLoopRef loop; */
+/* #endif */
+/* } WatchfulStream; */
 
 /* Externs */
-extern watchful_backend_t watchful_fse;
-extern watchful_backend_t watchful_inotify;
+extern WatchfulBackend watchful_fse;
+extern WatchfulBackend watchful_inotify;
 
 #ifdef LINUX
 #define watchful_default_backend watchful_inotify
@@ -111,14 +122,23 @@ extern watchful_backend_t watchful_inotify;
 #define watchful_default_backend watchful_fse
 #endif
 
-/* Utility Functions */
-char *watchful_clone_string(char *src);
-char *watchful_extend_path(char *path, char *name, int is_dir);
-int watchful_is_excluded(char *path, watchful_excludes_t *excludes);
+/* Path Functions */
+char *watchful_path_create(const char *path, const char *prefix, bool is_dir);
+bool watchful_path_is_dir(const char *path);
+
+/* Monitor Functions */
+WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, WatchfulCallback cb);
+void watchful_monitor_destroy(WatchfulMonitor *wm);
+bool watchful_monitor_excludes_path(WatchfulMonitor *wm, const char *path);
+int watchful_monitor_start(WatchfulMonitor *wm);
+int watchful_monitor_stop(WatchfulMonitor *wm);
 
 /* Debugging Functions */
-#define WATCHFUL_DEBUG 0
-#define debug_print(...) \
-    do { if (WATCHFUL_DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
+#define WATCHFUL_DEBUG 1
+#ifdef WATCHFUL_DEBUG
+#define debug_print(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define debug_print(...) (void)0
+#endif
 
 #endif

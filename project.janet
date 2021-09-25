@@ -9,7 +9,7 @@
 
 
 (def cflags
-  ["-Ifsmon" "-Ifsmon/backend" "-DFSMON_VERSION=\"1.8.1\""])
+  [])
 
 
 (def platform-cflags
@@ -32,11 +32,18 @@
 
 
 (declare-native
-  :name "watchful"
+  :name "_watchful"
   :cflags [;default-cflags ;cflags ;platform-cflags]
   :lflags [;default-lflags ;lflags ;platform-lflags]
-  :headers @["src/watchful.h"]
-  :source @["src/watchful/fse.c"
-            "src/watchful/inotify.c"
-            "src/watchful/wildmatch.c"
-            "src/watchful.c"])
+  :headers @["src/watchful.h"
+             "wrappers/janet/wrapper.h"]
+  :source @["src/backends/fse.c"
+            "src/backends/inotify.c"
+            "src/wildmatch.c"
+            "src/watchful.c"
+            "wrappers/janet/functions.c"
+            "wrappers/janet/monitor.c"])
+
+
+(declare-source
+  :source ["wrappers/janet/watchful.janet"])

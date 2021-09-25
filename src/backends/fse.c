@@ -2,7 +2,7 @@
 
 #ifndef MACOS
 
-watchful_backend_t watchful_fse = {
+WatchfulBackend watchful_fse = {
     .name = "fse",
     .setup = NULL,
     .teardown = NULL,
@@ -106,7 +106,7 @@ static void callback(
         event->type = event_type;
         event->path = watchful_clone_string(paths[selection]);
 
-        janet_thread_send(stream->parent, janet_wrap_pointer(event), 10);
+        /* janet_thread_send(stream->parent, janet_wrap_pointer(event), 10); */
     }
 }
 
