@@ -76,12 +76,7 @@ bool watchful_path_is_dir(const char *path) {
 
 /* Monitor Functions */
 
-WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, WatchfulCallback cb) {
-    if (!watchful_path_is_dir(path)) return NULL;
-
-    WatchfulMonitor *wm = malloc(sizeof(WatchfulMonitor));
-    if (NULL == wm) return NULL;
-
+int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, WatchfulCallback cb, void *cb_info) {
     wm->backend = (NULL == backend) ? &watchful_default_backend : backend;
 
     wm->path = abs_path_create(path);
@@ -94,18 +89,35 @@ WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *p
 
     wm->events = events;
     wm->callback = cb;
+    wm->callback_info = cb_info;
     wm->thread = 0;
     wm->delay = 0;
+
+    return 0;
+
+error:
+    watchful_monitor_deinit(wm);
+
+    return 1;
+}
+
+WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, WatchfulCallback cb, void *cb_info) {
+    if (!watchful_path_is_dir(path)) return NULL;
+
+    WatchfulMonitor *wm = malloc(sizeof(WatchfulMonitor));
+    if (NULL == wm) return NULL;
+
+    int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, cb, cb_info);
+    if (error) goto error;
 
     return wm;
 
 error:
-    watchful_monitor_destroy(wm);
-
+    free(wm);
     return NULL;
 }
 
-void watchful_monitor_destroy(WatchfulMonitor *wm) {
+void watchful_monitor_deinit(WatchfulMonitor *wm) {
     if (NULL != wm->path) free(wm->path);
 
     if (NULL != wm->excludes) {
@@ -115,8 +127,18 @@ void watchful_monitor_destroy(WatchfulMonitor *wm) {
         free(wm->excludes);
     }
 
-    free(wm);
+    wm->callback = NULL;
+    wm->callback_info = NULL;
+    wm->thread = 0;
+    wm->delay = 0;
 
+    return;
+}
+
+
+void watchful_monitor_destroy(WatchfulMonitor *wm) {
+    watchful_monitor_deinit(wm);
+    free(wm);
     return;
 }
 

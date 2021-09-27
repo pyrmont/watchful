@@ -54,7 +54,7 @@ struct WatchfulMonitor;
 
 /* Type Aliases */
 typedef pthread_t WatchfulThread;
-typedef int (*WatchfulCallback)(struct WatchfulEvent *);
+typedef int (*WatchfulCallback)(struct WatchfulEvent *, void *);
 
 /* Types */
 
@@ -84,7 +84,8 @@ typedef struct WatchfulMonitor {
   char *path;
   WatchfulExcludes *excludes;
   int events;
-  int (*callback)(WatchfulEvent *event);
+  WatchfulCallback callback;
+  WatchfulEvent *callback_info;
   WatchfulThread thread;
   double delay;
 #ifdef INOTIFY
@@ -127,7 +128,9 @@ char *watchful_path_create(const char *path, const char *prefix, bool is_dir);
 bool watchful_path_is_dir(const char *path);
 
 /* Monitor Functions */
-WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, WatchfulCallback cb);
+int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, WatchfulCallback cb, void *cb_info);
+WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, WatchfulCallback cb, void *cb_info);
+void watchful_monitor_deinit(WatchfulMonitor *wm);
 void watchful_monitor_destroy(WatchfulMonitor *wm);
 bool watchful_monitor_excludes_path(WatchfulMonitor *wm, const char *path);
 int watchful_monitor_start(WatchfulMonitor *wm);

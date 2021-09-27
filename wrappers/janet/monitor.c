@@ -5,7 +5,7 @@
 static int watchful_monitor_gc(void *p, size_t size) {
     /* Should teardown monitor here */
     (void) size;
-    watchful_monitor_destroy((WatchfulMonitor *)p);
+    watchful_monitor_deinit((WatchfulMonitor *)p);
     return 0;
 }
 
@@ -13,7 +13,7 @@ static int watchful_monitor_gc(void *p, size_t size) {
 
 static int watchful_monitor_mark(void *p, size_t size) {
     (void) size;
-    WatchfulMonitor *monitor = (WatchfulMonitor *)p;
+    WatchfulMonitor *wm = (WatchfulMonitor *)p;
     return 0;
 }
 

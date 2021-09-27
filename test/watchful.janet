@@ -12,9 +12,16 @@
 
 
 (deftest watch
-  (print (os/cwd))
+  (def path "tmp")
+  (def full-path (string (os/cwd) "/" path "/"))
   (def channel (ev/chan 1))
-  (watchful/watch "tmp" channel))
+  (defn f [e]
+    (ev/give channel e))
+  (def fiber (watchful/watch path f))
+  (os/execute ["touch" path] :p)
+  (def result (ev/take channel))
+  (ev/cancel fiber "watch cancelled")
+  (is (== full-path result)))
 
 
 # (deftest watch-with-timeout

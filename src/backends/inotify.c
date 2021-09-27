@@ -76,9 +76,7 @@ static int handle_event(WatchfulMonitor *wm) {
         event->type = event_type;
         event->path = path;
 
-        wm->callback(event);
-
-        /* janet_thread_send(stream->parent, janet_wrap_pointer(event), 10); */
+        wm->callback(event, wm->callback_info);
     }
 
     return 0;
