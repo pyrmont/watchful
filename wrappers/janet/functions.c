@@ -4,14 +4,17 @@ static int event_callback(WatchfulEvent *event, void *info) {
     /* 1. Get pipe. */
     JanetTuple pipe = (JanetTuple)info;
     JanetStream *input = janet_unwrap_abstract(pipe[1]);
+
+    /* 2. Get handle. */
     int handle = (int)(input->handle);
+
+    /* 3. Send sentinel value. */
     ssize_t written_bytes = 0;
-    /* 2. Wrap pointer. */
     uint8_t sentinel = 1;
     written_bytes = write(handle, &sentinel, 1);
-    debug_print("Wrote %d bytes\n", written_bytes);
+
+    /* 4. Send pointer. */
     written_bytes = write(handle, &event, sizeof(WatchfulEvent *));
-    debug_print("Wrote %d bytes\n", written_bytes);
 
     return 0;
 }
@@ -41,16 +44,22 @@ JANET_FN(cfun_monitor,
     const char *path = janet_getcstring(argv, 0);
     if (NULL == path) janet_panic("cannot get path");
 
-    JanetTuple pipe = janet_gettuple(argv, 1);
-    if (NULL == pipe) janet_panic("cannot get pipe");
+    size_t excl_paths_len = 0;
+    const char **excl_paths = NULL;
+    if (!janet_checktype(argv[1], JANET_NIL)) {
+        JanetTuple tuple = janet_gettuple(argv, 1);
+        excl_paths_len = janet_tuple_length(tuple);
+        excl_paths = malloc(sizeof(const char *) * excl_paths_len);
+        for (size_t i = 0; i < excl_paths_len; i++) {
+            /* won't work if path contains embedded zeros */
+            excl_paths[i] = (const char *)janet_unwrap_string(tuple[i]);
+        }
+    }
 
     if (!watchful_path_is_dir(path)) janet_panic("path is not a directory");
 
-    /* WatchfulMonitor *temp = watchful_monitor_create(NULL, path, 0, NULL, WATCHFUL_EVENT_ALL, watchful_event_callback, NULL); */
-    /* if (NULL == temp) janet_panic("cannot create monitor"); */
-
     WatchfulMonitor *wm = janet_abstract(&watchful_monitor_type, sizeof(WatchfulMonitor));
-    int error = watchful_monitor_init(wm, NULL, path, 0, NULL, WATCHFUL_EVENT_ALL, event_callback, (void *)pipe);
+    int error = watchful_monitor_init(wm, NULL, path, excl_paths_len, excl_paths, WATCHFUL_EVENT_ALL, event_callback, NULL);
     if (error) janet_panic("cannot initialise monitor");
 
     return janet_wrap_abstract(wm);
@@ -64,9 +73,20 @@ JANET_FN(cfun_get_pipe,
     WatchfulMonitor *wm = janet_getabstract(argv, 0, &watchful_monitor_type);
 
     JanetTuple pipe = (JanetTuple)(wm->callback_info);
+    if (NULL == pipe) janet_panic("no pipe");
     JanetStream *output = janet_unwrap_abstract(pipe[0]);
 
     return janet_wrap_abstract(output);
+}
+
+JANET_FN(cfun_is_watching,
+        "(_watchful/watching? monitor)",
+        "Native function for checking if monitor is running") {
+    janet_fixarity(argc, 1);
+
+    WatchfulMonitor *wm = janet_getabstract(argv, 0, &watchful_monitor_type);
+
+    return janet_wrap_boolean((int)wm->is_watching);
 }
 
 JANET_FN(cfun_read_event,
@@ -74,7 +94,6 @@ JANET_FN(cfun_read_event,
         "Native function for reading an event from a pipe") {
     janet_fixarity(argc, 1);
 
-    debug_print("Trying to read an event...\n");
     JanetStream *pipe = janet_getabstract(argv, 0, &janet_stream_type);
     int handle = (int)(pipe->handle);
 
@@ -98,11 +117,16 @@ JANET_FN(cfun_read_event,
 }
 
 JANET_FN(cfun_start,
-        "(_watchful/start monitor)",
+        "(_watchful/start monitor pipe)",
         "Native function for starting a watch") {
-    janet_fixarity(argc, 1);
+    janet_fixarity(argc, 2);
 
     WatchfulMonitor *wm = janet_getabstract(argv, 0, &watchful_monitor_type);
+
+    JanetTuple pipe = janet_gettuple(argv, 1);
+    if (NULL == pipe) janet_panic("cannot get pipe");
+    wm->callback_info = (void *)pipe;
+
     int error = 0;
 
     error = watchful_monitor_start(wm);
@@ -132,6 +156,7 @@ JANET_MODULE_ENTRY(JanetTable *env) {
         JANET_REG("read-event", cfun_read_event),
         JANET_REG("start", cfun_start),
         JANET_REG("stop", cfun_stop),
+        JANET_REG("watching?", cfun_is_watching),
         JANET_REG_END
     });
 }

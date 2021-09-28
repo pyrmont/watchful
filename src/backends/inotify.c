@@ -142,6 +142,22 @@ static int start_loop(WatchfulMonitor *wm) {
     return 0;
 }
 
+static int remove_watches(WatchfulMonitor *wm) {
+    if (NULL == wm) return 1;
+
+    for (size_t i = 0; i < wm->watches_len; i++) {
+        inotify_rm_watch(wm->fd, wm->watches[i]->wd);
+        free(wm->watches[i]->path);
+        free(wm->watches[i]);
+    }
+
+    free(wm->watches);
+    wm->watches = NULL;
+    wm->watches_len = 0;
+
+    return 0;
+}
+
 static WatchfulWatch *add_watch(int fd, char *path, int events) {
     WatchfulWatch *watch = malloc(sizeof(WatchfulWatch));
     if (NULL == watch) return NULL;
@@ -169,25 +185,10 @@ error:
     return NULL;
 }
 
-static int remove_watches(WatchfulMonitor *wm) {
-    if (NULL == wm) return 0;
-
-    int error = 0;
-
-    for (size_t i = 0; i < wm->watches_len; i++) {
-        error = inotify_rm_watch(wm->fd, wm->watches[i]->wd);
-        if (error) return 1;
-        free(wm->watches[i]->path);
-        free(wm->watches[i]);
-    }
-
-    free(wm->watches);
+static int add_watches(WatchfulMonitor *wm) {
+    wm->watches_len = 0;
     wm->watches = NULL;
 
-    return 0;
-}
-
-static int add_watches(WatchfulMonitor *wm) {
     /* This assumes that the path is a directory */
     char *path = watchful_path_create(wm->path, NULL, true);
     if (NULL == path) goto error;
@@ -266,6 +267,7 @@ error:
 
     closedir(dir);
     close(wm->fd);
+    wm->fd = -1;
 
     return 1;
 }
@@ -300,6 +302,7 @@ static int teardown(WatchfulMonitor *wm) {
 
     error = close(wm->fd);
     if (error) return 1;
+    wm->fd = -1;
 
     return 0;
 }

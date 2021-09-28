@@ -90,7 +90,8 @@ int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const c
     wm->events = events;
     wm->callback = cb;
     wm->callback_info = cb_info;
-    wm->thread = 0;
+    wm->is_watching = false;
+    wm->thread = -1;
     wm->delay = 0;
 
     return 0;
@@ -118,6 +119,8 @@ error:
 }
 
 void watchful_monitor_deinit(WatchfulMonitor *wm) {
+    watchful_monitor_stop(wm);
+
     if (NULL != wm->path) free(wm->path);
 
     if (NULL != wm->excludes) {
@@ -129,7 +132,8 @@ void watchful_monitor_deinit(WatchfulMonitor *wm) {
 
     wm->callback = NULL;
     wm->callback_info = NULL;
-    wm->thread = 0;
+    wm->is_watching = false;
+    wm->thread = -1;
     wm->delay = 0;
 
     return;
@@ -152,15 +156,19 @@ bool watchful_monitor_excludes_path(WatchfulMonitor *wm, const char *path) {
 }
 
 int watchful_monitor_start(WatchfulMonitor *wm) {
+    if (wm->is_watching) return 1;
     int error = 0;
     error = wm->backend->setup(wm);
     if (error) return 1;
+    wm->is_watching = true;
     return 0;
 }
 
 int watchful_monitor_stop(WatchfulMonitor *wm) {
+    if (!wm->is_watching) return 0;
     int error = 0;
     error = wm->backend->teardown(wm);
     if (error) return 1;
+    wm->is_watching = false;
     return 0;
 }

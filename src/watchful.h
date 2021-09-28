@@ -86,6 +86,7 @@ typedef struct WatchfulMonitor {
   int events;
   WatchfulCallback callback;
   WatchfulEvent *callback_info;
+  bool is_watching;
   WatchfulThread thread;
   double delay;
 #ifdef INOTIFY
