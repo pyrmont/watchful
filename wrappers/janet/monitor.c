@@ -14,6 +14,7 @@ static int watchful_monitor_gc(void *p, size_t size) {
 static int watchful_monitor_mark(void *p, size_t size) {
     (void) size;
     WatchfulMonitor *wm = (WatchfulMonitor *)p;
+    JanetTuple pipe = (JanetTuple)wm->callback_info;
     return 0;
 }
 

@@ -21,7 +21,8 @@
   (os/execute ["touch" path] :p)
   (def result (ev/take channel))
   (ev/cancel fiber "watch cancelled")
-  (is (== full-path result)))
+  (def expect {:path full-path :type :modified})
+  (is (== expect result)))
 
 
 # (deftest watch-with-timeout
