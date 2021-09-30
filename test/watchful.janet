@@ -25,14 +25,27 @@
   (def path "tmp")
   (def full-path (string (os/cwd) "/" path "/"))
   (def channel (ev/chan 1))
-  (defn f [e]
-    (ev/give channel e))
+  (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f))
   (os/execute ["touch" path] :p)
   (def result (ev/take channel))
   (watchful/cancel fiber)
   (def expect {:path full-path :type :modified})
   (is (== expect result)))
+
+
+(deftest watch-with-exceptions
+  (def path "tmp")
+  (def full-path (string (os/cwd) "/" path "/"))
+  (def channel (ev/chan 1))
+  (defn f [e] (ev/give channel e))
+  (def fiber (watchful/watch path f ["tmp/ignored"]))
+  (watchful/cancel fiber))
+  # (os/execute ["touch" (string path "/ignored")] :p)
+  # (os/execute ["touch" path] :p)
+  # (def result (ev/take channel))
+  # (def expect {:path full-path :type :modified})
+  # (is (== expect result)))
 
 
 (var reports nil)
