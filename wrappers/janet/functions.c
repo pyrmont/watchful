@@ -71,6 +71,8 @@ JANET_FN(cfun_monitor,
     int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, delay, event_callback, NULL);
     if (error) janet_panic("cannot initialise monitor");
 
+    if (NULL != excl_paths) janet_sfree(excl_paths);
+
     return janet_wrap_abstract(wm);
 }
 
