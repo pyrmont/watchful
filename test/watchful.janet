@@ -34,7 +34,7 @@
   (is (== expect result)))
 
 
-(deftest watch-with-exceptions
+(deftest watch-with-ignored-path
   (def path "tmp")
   (def full-path (string (os/cwd) "/" path "/"))
   (def channel (ev/chan 1))
@@ -42,9 +42,9 @@
   (def fiber (watchful/watch path f {:ignored-paths ["tmp/ignored"]}))
   (os/execute ["touch" (string path "/ignored")] :p)
   (os/execute ["touch" (string path "/not-ignored")] :p)
-  (def result (ev/count channel))
+  (def event (ev/take channel))
   (watchful/cancel fiber)
-  (is (== 2 result)))
+  (is (= (string full-path "not-ignored") (get event :path))))
 
 
 (var reports nil)
