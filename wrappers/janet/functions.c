@@ -37,29 +37,38 @@ static Janet event_wrap_type(int type) {
 /* Exposed Functions */
 
 JANET_FN(cfun_monitor,
-        "(_watchful/monitor path pipe &opt excluded-paths)",
+        "(_watchful/monitor path opts)",
         "Native function for creating a monitor") {
     janet_fixarity(argc, 2);
 
+    WatchfulBackend *backend = NULL;
+
     const char *path = janet_getcstring(argv, 0);
     if (NULL == path) janet_panic("cannot get path");
+    if (!watchful_path_is_dir(path)) janet_panic("path is not a directory");
+
+    JanetStruct empty = janet_struct_end(janet_struct_begin(0));
+    JanetStruct opts = janet_optstruct(argv, argc, 1, empty);
 
     size_t excl_paths_len = 0;
     const char **excl_paths = NULL;
-    if (!janet_checktype(argv[1], JANET_NIL)) {
-        JanetTuple tuple = janet_gettuple(argv, 1);
-        excl_paths_len = janet_tuple_length(tuple);
-        excl_paths = malloc(sizeof(const char *) * excl_paths_len);
+    Janet excluded_paths = janet_struct_get(opts, janet_ckeywordv("ignored-paths"));
+    if (!janet_checktype(excluded_paths, JANET_NIL)) {
+        if (!janet_checktypes(excluded_paths, JANET_TFLAG_INDEXED)) janet_panic("ignored-paths option must be array or tuple");
+        const Janet *vals = NULL;
+        janet_indexed_view(excluded_paths, &vals, (int32_t *)&excl_paths_len);
+        excl_paths = janet_smalloc(sizeof(const char *) * excl_paths_len);
         for (size_t i = 0; i < excl_paths_len; i++) {
-            /* won't work if path contains embedded zeros */
-            excl_paths[i] = (const char *)janet_unwrap_string(tuple[i]);
+            excl_paths[i] = (const char *)janet_unwrap_string(vals[i]);
         }
     }
 
-    if (!watchful_path_is_dir(path)) janet_panic("path is not a directory");
+    int events = WATCHFUL_EVENT_ALL;
+
+    double delay = 0;
 
     WatchfulMonitor *wm = janet_abstract(&watchful_monitor_type, sizeof(WatchfulMonitor));
-    int error = watchful_monitor_init(wm, NULL, path, excl_paths_len, excl_paths, WATCHFUL_EVENT_ALL, event_callback, NULL);
+    int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, delay, event_callback, NULL);
     if (error) janet_panic("cannot initialise monitor");
 
     return janet_wrap_abstract(wm);

@@ -59,43 +59,43 @@ typedef int (*WatchfulCallback)(struct WatchfulEvent *, void *);
 /* Types */
 
 typedef struct WatchfulWatch {
-  int wd;
-  char *path;
+    int wd;
+    char *path;
 } WatchfulWatch;
 
 typedef struct WatchfulEvent {
-  int type;
-  char *path;
+    int type;
+    char *path;
 } WatchfulEvent;
 
 typedef struct WatchfulBackend {
-  const char *name;
-  int (*setup)(struct WatchfulMonitor *wm);
-  int (*teardown)(struct WatchfulMonitor *wm);
+    const char *name;
+    int (*setup)(struct WatchfulMonitor *wm);
+    int (*teardown)(struct WatchfulMonitor *wm);
 } WatchfulBackend;
 
 typedef struct WatchfulExcludes {
-  char **paths;
-  size_t len;
+    char **paths;
+    size_t len;
 } WatchfulExcludes;
 
 typedef struct WatchfulMonitor {
-  WatchfulBackend *backend;
-  char *path;
-  WatchfulExcludes *excludes;
-  int events;
-  WatchfulCallback callback;
-  WatchfulEvent *callback_info;
-  bool is_watching;
-  WatchfulThread thread;
-  double delay;
+    WatchfulBackend *backend;
+    char *path;
+    WatchfulExcludes *excludes;
+    int events;
+    double delay;
+    WatchfulCallback callback;
+    WatchfulEvent *callback_info;
+    bool is_watching;
+    WatchfulThread thread;
 #ifdef INOTIFY
-  int fd;
-  size_t watches_len;
-  WatchfulWatch **watches;
+    int fd;
+    size_t watches_len;
+    WatchfulWatch **watches;
 #elif FSE
-  FSEventStreamRef ref;
-  CFRunLoopRef loop;
+    FSEventStreamRef ref;
+    CFRunLoopRef loop;
 #endif
 } WatchfulMonitor;
 
@@ -129,8 +129,8 @@ char *watchful_path_create(const char *path, const char *prefix, bool is_dir);
 bool watchful_path_is_dir(const char *path);
 
 /* Monitor Functions */
-int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, WatchfulCallback cb, void *cb_info);
-WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, WatchfulCallback cb, void *cb_info);
+int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, double delay, WatchfulCallback cb, void *cb_info);
+WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, double delay, WatchfulCallback cb, void *cb_info);
 void watchful_monitor_deinit(WatchfulMonitor *wm);
 void watchful_monitor_destroy(WatchfulMonitor *wm);
 bool watchful_monitor_excludes_path(WatchfulMonitor *wm, const char *path);

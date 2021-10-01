@@ -223,6 +223,7 @@ static int add_watches(WatchfulMonitor *wm) {
             path = watchful_path_create(entry->d_name, paths[i], false);
             if (NULL == path) goto error;
             paths[i] = NULL;
+            /* TODO: Add ignore logic */
 
             DIR *child_dir = opendir(path);
             if (NULL != child_dir) {

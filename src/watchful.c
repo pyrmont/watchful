@@ -11,7 +11,7 @@ static char *abs_path_create(const char *path) {
         char buf[max_len];
         char *cwd = getcwd(buf, max_len);
         if (NULL == cwd) return NULL;
-        abs_path = watchful_path_create(path, buf, true);
+        abs_path = watchful_path_create(path, buf, false);
     }
     return abs_path;
 }
@@ -20,7 +20,10 @@ static WatchfulExcludes *excludes_create(size_t paths_len, const char **paths) {
     WatchfulExcludes *excludes = malloc(sizeof(WatchfulExcludes));
     if (excludes == NULL) return NULL;
 
+    excludes->paths = NULL;
     excludes->len = paths_len;
+
+    if (excludes->len == 0) return excludes;
 
     excludes->paths = malloc(sizeof(char *) * paths_len);;
     if (NULL == excludes->paths) goto error;
@@ -76,7 +79,7 @@ bool watchful_path_is_dir(const char *path) {
 
 /* Monitor Functions */
 
-int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, WatchfulCallback cb, void *cb_info) {
+int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, double delay, WatchfulCallback cb, void *cb_info) {
     wm->backend = (NULL == backend) ? &watchful_default_backend : backend;
 
     wm->path = abs_path_create(path);
@@ -88,11 +91,11 @@ int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const c
     if (watchful_monitor_excludes_path(wm, path)) goto error;
 
     wm->events = events;
+    wm->delay = 0;
     wm->callback = cb;
     wm->callback_info = cb_info;
     wm->is_watching = false;
     wm->thread = -1;
-    wm->delay = 0;
 
     return 0;
 
@@ -102,13 +105,13 @@ error:
     return 1;
 }
 
-WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, WatchfulCallback cb, void *cb_info) {
+WatchfulMonitor *watchful_monitor_create(WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, double delay, WatchfulCallback cb, void *cb_info) {
     if (!watchful_path_is_dir(path)) return NULL;
 
     WatchfulMonitor *wm = malloc(sizeof(WatchfulMonitor));
     if (NULL == wm) return NULL;
 
-    int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, cb, cb_info);
+    int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, delay, cb, cb_info);
     if (error) goto error;
 
     return wm;
@@ -130,11 +133,12 @@ void watchful_monitor_deinit(WatchfulMonitor *wm) {
         free(wm->excludes);
     }
 
+    wm->events = 0;
+    wm->delay = 0;
     wm->callback = NULL;
     wm->callback_info = NULL;
     wm->is_watching = false;
     wm->thread = -1;
-    wm->delay = 0;
 
     return;
 }

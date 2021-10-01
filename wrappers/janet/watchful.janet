@@ -1,8 +1,8 @@
 (import ../../build/_watchful)
 
 
-(defn monitor [path &opt excluded_paths]
-  (_watchful/monitor path excluded_paths))
+(defn monitor [path &opt opts]
+  (_watchful/monitor path opts))
 
 
 (defn cancel [fiber]
@@ -46,8 +46,8 @@
   (_watchful/stop monitor))
 
 
-(defn watch [path on-event &opt excluded-paths]
-  (def monitor (_watchful/monitor path excluded-paths))
+(defn watch [path on-event &opt opts]
+  (def monitor (_watchful/monitor path opts))
   (def signals (ev/chan 1))
   (def events (start monitor))
   (defn clean-up []
