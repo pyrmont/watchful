@@ -79,7 +79,7 @@ JANET_FN(cfun_monitor,
         size_t excl_events_len = 0;
         janet_indexed_view(excluded_events, &vals, (int32_t *)&excl_events_len);
         for (size_t i = 0; i < excl_events_len; i++) {
-            JanetString excl_event = janet_unwrap_string(vals[i]);
+            JanetString excl_event = janet_unwrap_keyword(vals[i]);
             if (!janet_cstrcmp(excl_event, "created"))
                 events = events ^ WATCHFUL_EVENT_CREATED;
             else if (!janet_cstrcmp(excl_event, "deleted"))
