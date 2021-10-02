@@ -11,10 +11,8 @@
 
 (defn start [monitor]
   (when (_watchful/watching? monitor) (error "monitor already watching"))
-  (def pipe (os/pipe))
-  (def output (get pipe 0))
-  (def events (ev/chan 1))
   (def signals (ev/chan 1))
+  (def events (ev/chan 1))
   (defn supervise []
     (def [status fiber] (ev/take signals))
     (when (= status :error)
@@ -23,7 +21,9 @@
         (ev/chan-close events)
         (propagate error-value fiber))))
   (ev/call supervise)
-  (defn watch []
+  (def pipe (os/pipe))
+  (def output (get pipe 0))
+  (defn receive []
     (forever
       (var path-length 0)
       (while (def byte (first (ev/read output 1)))
@@ -45,7 +45,7 @@
       (unless chan-open?
         (ev/close output)
         (break))))
-  (ev/go (fiber/new watch :t) nil signals)
+  (ev/go (fiber/new receive :t) nil signals)
   (_watchful/start monitor pipe)
   events)
 
@@ -74,7 +74,16 @@
   (ev/call supervise)
   (defn react []
     (forever
-      (on-event (ev/take events))))
+      (def event (ev/take events))
+      (cond
+        (nil? event)
+        (break)
+
+        (and (tuple? event)
+             (= :close (first event)))
+        (error "stream closed unexpectedly")
+
+        (on-event event))))
   (ev/go (fiber/new react :t) nil signals))
 
 
