@@ -1,6 +1,6 @@
 #include "wrapper.h"
 
-static int event_callback(WatchfulEvent *event, void *info) {
+static int event_callback(const WatchfulEvent *event, void *info) {
     /* 1. Get pipe. */
     JanetTuple pipe = (JanetTuple)info;
     JanetStream *input = janet_unwrap_abstract(pipe[1]);
@@ -8,30 +8,38 @@ static int event_callback(WatchfulEvent *event, void *info) {
     /* 2. Get handle. */
     int handle = (int)(input->handle);
 
-    /* 3. Send sentinel value. */
     ssize_t written_bytes = 0;
-    uint8_t sentinel = 1;
-    written_bytes = write(handle, &sentinel, 1);
 
-    /* 4. Send pointer. */
-    written_bytes = write(handle, &event, sizeof(WatchfulEvent *));
+    /* 3. Send the path length. */
+    size_t null_byte = 0;
+    size_t len = strlen(event->path);
+    size_t max = 255;
+    size_t loops = len / max;
+    size_t rem = len % max;
+    for (size_t i = 0; i < loops; i++)  {
+        written_bytes = write(handle, &max, 1);
+        if (written_bytes != 1) goto error;
+    }
+    if (rem) {
+        written_bytes = write(handle, &rem, 1);
+        if (written_bytes != 1) goto error;
+    }
+    written_bytes = write(handle, &null_byte, 1);
+    if (written_bytes != 1) goto error;
+
+    /* 4. Send the event path. */
+    written_bytes = write(handle, event->path, len);
+    if (written_bytes != len) goto error;
+
+    /* 5. Send the event type. */
+    written_bytes = write(handle, &(event->type), 1);
+    if (written_bytes != 1) goto error;
 
     return 0;
-}
 
-static Janet event_wrap_type(int type) {
-    switch (type) {
-        case WATCHFUL_EVENT_CREATED:
-            return janet_ckeywordv("created");
-        case WATCHFUL_EVENT_DELETED:
-            return janet_ckeywordv("deleted");
-        case WATCHFUL_EVENT_MOVED:
-            return janet_ckeywordv("moved");
-        case WATCHFUL_EVENT_MODIFIED:
-            return janet_ckeywordv("modified");
-        default:
-            return janet_wrap_nil();
-    }
+error:
+    janet_stream_close(input);
+    return 1;
 }
 
 /* Exposed Functions */
@@ -100,33 +108,6 @@ JANET_FN(cfun_is_watching,
     return janet_wrap_boolean((int)wm->is_watching);
 }
 
-JANET_FN(cfun_read_event,
-        "(_watchful/read-event pipe)",
-        "Native function for reading an event from a pipe") {
-    janet_fixarity(argc, 1);
-
-    JanetStream *pipe = janet_getabstract(argv, 0, &janet_stream_type);
-    int handle = (int)(pipe->handle);
-
-    size_t ptr_len = sizeof(WatchfulEvent *);
-    WatchfulEvent *event;
-    ssize_t written_bytes = 0;
-    written_bytes = read(handle, &event, ptr_len);
-    if (written_bytes != ptr_len) janet_panic("insufficient number of bytes in pipe");
-
-    JanetString event_path = janet_cstring(event->path);
-
-    JanetKV *st = janet_struct_begin(2);
-    janet_struct_put(st, janet_ckeywordv("path"), janet_cstringv(event->path));
-    janet_struct_put(st, janet_ckeywordv("type"), event_wrap_type(event->type));
-    Janet result = janet_wrap_struct(st);
-
-    if (NULL != event->path) free(event->path);
-    if (NULL != event) free(event);
-
-    return result;
-}
-
 JANET_FN(cfun_start,
         "(_watchful/start monitor pipe)",
         "Native function for starting a watch") {
@@ -164,7 +145,6 @@ JANET_MODULE_ENTRY(JanetTable *env) {
     janet_cfuns_ext(env, "_watchful", (JanetRegExt[]) {
         JANET_REG("monitor", cfun_monitor),
         JANET_REG("get-pipe", cfun_get_pipe),
-        JANET_REG("read-event", cfun_read_event),
         JANET_REG("start", cfun_start),
         JANET_REG("stop", cfun_stop),
         JANET_REG("watching?", cfun_is_watching),

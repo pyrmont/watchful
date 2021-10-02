@@ -25,11 +25,22 @@
   (ev/call supervise)
   (defn watch []
     (forever
-      (def pipe-open? (ev/read output 1))
-      (unless pipe-open?
+      (var path-length 0)
+      (while (def byte (first (ev/read output 1)))
+        (if (zero? byte)
+          (break)
+          (+= path-length byte)))
+      (when (zero? path-length)
         (ev/chan-close events)
         (break))
-      (def event (_watchful/read-event output))
+      (def event-path (string (ev/chunk output path-length)))
+      (def event-type
+        (case (first (ev/read output 1))
+          1 :created
+          2 :deleted
+          4 :moved
+          8 :modified))
+      (def event {:path event-path :type event-type})
       (def chan-open? (ev/give events event))
       (unless chan-open?
         (ev/close output)

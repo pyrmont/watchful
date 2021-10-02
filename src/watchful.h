@@ -54,7 +54,7 @@ struct WatchfulMonitor;
 
 /* Type Aliases */
 typedef pthread_t WatchfulThread;
-typedef int (*WatchfulCallback)(struct WatchfulEvent *, void *);
+typedef int (*WatchfulCallback)(const struct WatchfulEvent *, void *);
 
 /* Types */
 

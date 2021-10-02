@@ -77,6 +77,10 @@ static int handle_event(WatchfulMonitor *wm) {
         event->path = path;
 
         wm->callback(event, wm->callback_info);
+
+        event->type = 0;
+        free(event->path);
+        free(event);
     }
 
     return 0;
@@ -202,13 +206,12 @@ static int add_watches(WatchfulMonitor *wm) {
     wm->watches_len++;
     watch = NULL;
 
-    size_t paths_len = 0;
-    size_t paths_max = 5;
+    size_t paths_len = 1;
+    size_t paths_max = 1;
     char **paths = malloc(sizeof(char *) * paths_max);
     if (NULL == paths) goto error;
 
     paths[0] = path;
-    paths++;
     path = NULL;
 
     DIR *dir;
@@ -222,11 +225,12 @@ static int add_watches(WatchfulMonitor *wm) {
 
             path = watchful_path_create(entry->d_name, paths[i], false);
             if (NULL == path) goto error;
-            paths[i] = NULL;
-            /* TODO: Add ignore logic */
 
             DIR *child_dir = opendir(path);
-            if (NULL != child_dir) {
+            if (NULL == child_dir || watchful_monitor_excludes_path(wm, path)) {
+                free(path);
+                continue;
+            } else {
                 closedir(child_dir);
 
                 if (i + 1 == paths_max) {
@@ -237,19 +241,20 @@ static int add_watches(WatchfulMonitor *wm) {
 
                 paths[paths_len] = path;
                 paths_len++;
+
+                watch = add_watch(wm->fd, path, wm->events);
+                if (NULL == watch) goto error;
+                path = NULL;
+
+                WatchfulWatch **new_watches = realloc(wm->watches, sizeof(WatchfulWatch *) * (wm->watches_len + 1));
+                if (NULL == new_watches) goto error;
+                wm->watches[wm->watches_len] = watch;
+                wm->watches_len++;
+                watch = NULL;
             }
-
-            watch = add_watch(wm->fd, path, wm->events);
-            if (NULL == watch) goto error;
-            path = NULL;
-
-            WatchfulWatch **new_watches = realloc(wm->watches, sizeof(WatchfulWatch *) * (wm->watches_len + 1));
-            if (NULL == new_watches) goto error;
-            wm->watches[wm->watches_len] = watch;
-            wm->watches_len++;
-            watch = NULL;
         }
 
+        paths[i] = NULL;
         closedir(dir);
     }
 
