@@ -74,7 +74,7 @@ JANET_FN(cfun_monitor,
     int events = WATCHFUL_EVENT_ALL;
     Janet excluded_events = janet_struct_get(opts, janet_ckeywordv("ignored-events"));
     if (!janet_checktype(excluded_events, JANET_NIL)) {
-        if (!janet_checktypes(excluded_events, JANET_TFLAG_INDEXED)) janet_panic("ignored-events options must be array or tuple");
+        if (!janet_checktypes(excluded_events, JANET_TFLAG_INDEXED)) janet_panic("ignored-events option must be array or tuple");
         const Janet *vals = NULL;
         size_t excl_events_len = 0;
         janet_indexed_view(excluded_events, &vals, (int32_t *)&excl_events_len);
