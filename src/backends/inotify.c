@@ -142,6 +142,9 @@ static int start_loop(WatchfulMonitor *wm) {
     while (start_waiting) pthread_cond_wait(&start_cond, &start_mutex);
     pthread_mutex_unlock(&start_mutex);
 
+    pthread_mutex_destroy(&start_mutex);
+    pthread_cond_destroy(&start_cond);
+
     pthread_attr_destroy(&attr);
     return 0;
 }
@@ -258,6 +261,8 @@ static int add_watches(WatchfulMonitor *wm) {
         closedir(dir);
     }
 
+    free(paths);
+
     return 0;
 
 error:
@@ -267,6 +272,7 @@ error:
         for (size_t i = 0; i < paths_len; i++) {
             if (NULL != paths[i]) free(paths[i]);
         }
+        free(paths);
     }
 
     remove_watches(wm);

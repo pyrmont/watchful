@@ -130,6 +130,7 @@ void watchful_monitor_deinit(WatchfulMonitor *wm) {
         for (size_t i = 0; i < wm->excludes->len; i++) {
             if (NULL != wm->excludes->paths[i]) free(wm->excludes->paths[i]);
         }
+        if (NULL != wm->excludes->paths) free(wm->excludes->paths);
         free(wm->excludes);
     }
 
