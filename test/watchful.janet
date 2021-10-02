@@ -23,35 +23,50 @@
 
 
 (deftest watch
+  (def cwd (string (os/cwd) "/"))
   (def path "tmp")
-  (def full-path (string (os/cwd) "/" path "/"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f))
-  # (os/execute ["touch" path] :p)
   (os/touch path)
   (def result1 (ev/take channel))
   (os/touch path)
   (def result2 (ev/take channel))
   (watchful/cancel fiber)
-  (def expect {:path full-path :type :modified})
+  (def expect {:path (string cwd path "/") :type :modified})
   (is (= expect result1))
   (is (= expect result2)))
 
 
 (deftest watch-with-ignored-paths
+  (def cwd (string (os/cwd) "/"))
   (def path "tmp")
-  (def full-path (string (os/cwd) "/" path "/"))
+  (def ignored-file-1 (string path "/" (gensym) "ignored"))
+  (def ignored-file-2 (string path "/" (gensym) "ignored"))
+  (def noticed-file (string path "/" (gensym) "not-ignored"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
-  (def fiber (watchful/watch path f {:ignored-paths ["tmp/ignored"
-                                                     "tmp/also-ignored"]}))
-  (spit (string path "/ignored") "")
-  (spit (string path "/also-ignored") "")
-  (spit (string path "/not-ignored") "")
+  (def fiber (watchful/watch path f {:ignored-paths [ignored-file-1 ignored-file-2]}))
+  (spit ignored-file-1 "")
+  (spit ignored-file-2 "")
+  (spit noticed-file "")
   (def event (ev/take channel))
   (watchful/cancel fiber)
-  (is (= (string full-path "not-ignored") (get event :path))))
+  (is (= (string cwd noticed-file) (get event :path))))
+
+
+(deftest watch-with-ignored-events
+  (def cwd (string (os/cwd) "/"))
+  (def path "tmp")
+  (def created-file (string path "/" (gensym) "created"))
+  (def channel (ev/chan 1))
+  (defn f [e] (ev/give channel e))
+  (def fiber (watchful/watch path f {:ignored-events [:modified]}))
+  (os/touch path)
+  (spit created-file "")
+  (def event (ev/take channel))
+  (watchful/cancel fiber)
+  (is (= (string cwd created-file) (get event :path))))
 
 
 (var reports nil)

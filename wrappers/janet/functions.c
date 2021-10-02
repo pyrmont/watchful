@@ -72,6 +72,26 @@ JANET_FN(cfun_monitor,
     }
 
     int events = WATCHFUL_EVENT_ALL;
+    Janet excluded_events = janet_struct_get(opts, janet_ckeywordv("ignored-events"));
+    if (!janet_checktype(excluded_events, JANET_NIL)) {
+        if (!janet_checktypes(excluded_events, JANET_TFLAG_INDEXED)) janet_panic("ignored-events options must be array or tuple");
+        const Janet *vals = NULL;
+        size_t excl_events_len = 0;
+        janet_indexed_view(excluded_events, &vals, (int32_t *)&excl_events_len);
+        for (size_t i = 0; i < excl_events_len; i++) {
+            JanetString excl_event = janet_unwrap_string(vals[i]);
+            if (!janet_cstrcmp(excl_event, "created"))
+                events = events ^ WATCHFUL_EVENT_CREATED;
+            else if (!janet_cstrcmp(excl_event, "deleted"))
+                events = events ^ WATCHFUL_EVENT_DELETED;
+            else if (!janet_cstrcmp(excl_event, "moved"))
+                events = events ^ WATCHFUL_EVENT_MOVED;
+            else if (!janet_cstrcmp(excl_event, "modified"))
+                events = events ^ WATCHFUL_EVENT_MODIFIED;
+            else
+                janet_panicf("%j is not an ignorable event", vals[i]);
+        }
+    }
 
     double delay = 0;
 
