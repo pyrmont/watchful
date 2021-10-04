@@ -6,7 +6,7 @@
 #endif
 
 #ifdef MACOS
-#define FSE
+#define FSEVENTS
 #endif
 
 /* General */
@@ -33,7 +33,8 @@
 #include <sys/types.h>
 #endif
 
-#ifdef FSE
+#ifdef FSEVENTS
+#include <time.h>
 #include <CoreServices/CoreServices.h>
 #endif
 
@@ -54,6 +55,7 @@ struct WatchfulMonitor;
 
 /* Type Aliases */
 typedef pthread_t WatchfulThread;
+typedef struct timespec WatchfulTime;
 typedef int (*WatchfulCallback)(const struct WatchfulEvent *, void *);
 
 /* Types */
@@ -61,6 +63,7 @@ typedef int (*WatchfulCallback)(const struct WatchfulEvent *, void *);
 typedef struct WatchfulWatch {
     int wd;
     char *path;
+    struct WatchfulWatch *next;
 } WatchfulWatch;
 
 typedef struct WatchfulEvent {
@@ -89,13 +92,15 @@ typedef struct WatchfulMonitor {
     WatchfulEvent *callback_info;
     bool is_watching;
     WatchfulThread thread;
-#ifdef INOTIFY
+#if defined(INOTIFY)
     int fd;
     size_t watches_len;
     WatchfulWatch **watches;
-#elif FSE
+#elif defined(FSEVENTS)
+    WatchfulTime *start_time;
     FSEventStreamRef ref;
     CFRunLoopRef loop;
+    CFMutableDictionaryRef watches;
 #endif
 } WatchfulMonitor;
 
@@ -115,13 +120,13 @@ typedef struct WatchfulMonitor {
 /* } WatchfulStream; */
 
 /* Externs */
-extern WatchfulBackend watchful_fse;
+extern WatchfulBackend watchful_fsevents;
 extern WatchfulBackend watchful_inotify;
 
-#ifdef LINUX
+#if defined(LINUX)
 #define watchful_default_backend watchful_inotify
-#elif MACOS
-#define watchful_default_backend watchful_fse
+#elif defined(MACOS)
+#define watchful_default_backend watchful_fsevents
 #endif
 
 /* Path Functions */
@@ -139,7 +144,7 @@ int watchful_monitor_stop(WatchfulMonitor *wm);
 
 /* Debugging Functions */
 #define WATCHFUL_DEBUG 1
-#ifdef WATCHFUL_DEBUG
+#if WATCHFUL_DEBUG
 #define debug_print(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define debug_print(...) (void)0

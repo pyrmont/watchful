@@ -9,18 +9,14 @@
 
 
 (def cflags
-  [])
+  ["-Wno-unused-parameter"])
 
 
 (def platform-cflags
   (case (os/which)
-   :macos
-   ["-mmacosx-version-min=10.12" "-DMACOS=1" "-framework" "CoreServices" "-Wno-unused-parameter" "-Wno-unused-command-line-argument"]
-
-   :linux
-   ["-DLINUX=1" "-pthread" "-Wno-unused-parameter"]
-
-   ["-Wno-unused-parameter"]))
+   :macos ["-DMACOS=1" "-Wno-unused-command-line-argument"]
+   :linux ["-DLINUX=1" "-pthread"]
+   []))
 
 
 (def lflags
@@ -28,7 +24,9 @@
 
 
 (def platform-lflags
-  [])
+  (case (os/which)
+   :macos["-framework" "CoreFoundation" "-framework" "CoreServices"]
+   []))
 
 
 (declare-native
@@ -37,7 +35,7 @@
   :lflags [;default-lflags ;lflags ;platform-lflags]
   :headers @["src/watchful.h"
              "wrappers/janet/wrapper.h"]
-  :source @["src/backends/fse.c"
+  :source @["src/backends/fsevents.c"
             "src/backends/inotify.c"
             "src/wildmatch.c"
             "src/watchful.c"

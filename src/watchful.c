@@ -95,7 +95,7 @@ int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const c
     wm->callback = cb;
     wm->callback_info = cb_info;
     wm->is_watching = false;
-    wm->thread = -1;
+    wm->thread = NULL;
 
     return 0;
 
@@ -139,7 +139,7 @@ void watchful_monitor_deinit(WatchfulMonitor *wm) {
     wm->callback = NULL;
     wm->callback_info = NULL;
     wm->is_watching = false;
-    wm->thread = -1;
+    wm->thread = NULL;
 
     return;
 }

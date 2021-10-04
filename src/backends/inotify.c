@@ -88,7 +88,7 @@ static int handle_event(WatchfulMonitor *wm) {
 
 static void *loop_runner(void *arg) {
     int error = 0;
-    WatchfulMonitor *wm= arg;
+    WatchfulMonitor *wm = arg;
 
     sigset_t mask;
     sigemptyset(&mask);
