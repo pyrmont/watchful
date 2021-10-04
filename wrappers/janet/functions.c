@@ -1,16 +1,19 @@
 #include "wrapper.h"
 
 static int event_callback(const WatchfulEvent *event, void *info) {
-    /* 1. Get pipe. */
+    /* 1. Ignore sigpipe. */
+    signal(SIGPIPE, SIG_IGN);
+
+    /* 2. Get pipe. */
     JanetTuple pipe = (JanetTuple)info;
     JanetStream *input = janet_unwrap_abstract(pipe[1]);
 
-    /* 2. Get handle. */
+    /* 3. Get handle. */
     int handle = (int)(input->handle);
 
     ssize_t written_bytes = 0;
 
-    /* 3. Send the path length. */
+    /* 4. Send the path length. */
     size_t null_byte = 0;
     size_t len = strlen(event->path);
     size_t max = 255;
@@ -27,13 +30,16 @@ static int event_callback(const WatchfulEvent *event, void *info) {
     written_bytes = write(handle, &null_byte, 1);
     if (written_bytes != 1) goto error;
 
-    /* 4. Send the event path. */
+    /* 5. Send the event path. */
     written_bytes = write(handle, event->path, len);
     if (written_bytes != len) goto error;
 
-    /* 5. Send the event type. */
+    /* 6. Send the event type. */
     written_bytes = write(handle, &(event->type), 1);
     if (written_bytes != 1) goto error;
+
+    /* 7. Reset signal. */
+    signal(SIGPIPE, SIG_DFL);
 
     return 0;
 
