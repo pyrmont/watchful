@@ -30,8 +30,7 @@ static int timecmp(WatchfulTime *t1, WatchfulTime *t2) {
 static bool is_historical_event(WatchfulMonitor *wm, char *path, int flag, int event) {
     struct stat buf;
 
-    if (event != WATCHFUL_EVENT_CREATED) return false;
-
+    /* TODO: Consider handling of other events */
     if (event == WATCHFUL_EVENT_CREATED) {
         if (flag & kFSEventStreamEventFlagItemRemoved) return true;
         if (flag & kFSEventStreamEventFlagItemRenamed) return true;
@@ -53,7 +52,13 @@ static bool is_historical_event(WatchfulMonitor *wm, char *path, int flag, int e
         CFRelease(key);
 
         return false;
-    } else {
+    } else if (event == WATCHFUL_EVENT_DELETED) {
+        return false;
+    } else if (event == WATCHFUL_EVENT_MOVED) {
+        return false;
+    } else if (event == WATCHFUL_EVENT_MODIFIED) {
+        return false;
+    } else { /* Unreachable */
         return false;
     }
 }
@@ -73,18 +78,18 @@ static void handle_event(
         int event_type = 0;
 
         if ((eventFlags[i] & kFSEventStreamEventFlagItemCreated) &&
-                !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_CREATED))
+            !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_CREATED))
             event_type = event_type | WATCHFUL_EVENT_CREATED;
         else if ((eventFlags[i] & kFSEventStreamEventFlagItemRemoved) &&
-                !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_DELETED))
+                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_DELETED))
             event_type = event_type | WATCHFUL_EVENT_DELETED;
         else if ((eventFlags[i] & kFSEventStreamEventFlagItemRenamed) &&
-                !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_MOVED))
+                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_MOVED))
             event_type = event_type | WATCHFUL_EVENT_MOVED;
         else if (((eventFlags[i] & kFSEventStreamEventFlagItemModified) ||
-                    (eventFlags[i] & kFSEventStreamEventFlagItemXattrMod) ||
-                    (eventFlags[i] & kFSEventStreamEventFlagItemInodeMetaMod)) &&
-                !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_MODIFIED))
+                  (eventFlags[i] & kFSEventStreamEventFlagItemXattrMod) ||
+                  (eventFlags[i] & kFSEventStreamEventFlagItemInodeMetaMod)) &&
+                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_MODIFIED))
             event_type = event_type | WATCHFUL_EVENT_MODIFIED;
 
         if (!(event_type && (wm->events & event_type))) continue;
@@ -170,7 +175,6 @@ static int start_loop(WatchfulMonitor *wm) {
     CFStringRef path = CFStringCreateWithCString(NULL, wm->path, kCFStringEncodingUTF8);
     CFArrayRef pathsToWatch = CFArrayCreate(NULL, (const void **)&path, 1, NULL);
 
-    /* TODO: Set the flags correctly */
     FSEventStreamCreateFlags fsevents_events = 0;
     fsevents_events = fsevents_events | kFSEventStreamCreateFlagWatchRoot;
     fsevents_events = fsevents_events | kFSEventStreamCreateFlagFileEvents;
@@ -180,12 +184,9 @@ static int start_loop(WatchfulMonitor *wm) {
         handle_event,
         &stream_context,
         pathsToWatch,
-        kFSEventStreamEventIdSinceNow, /* Or a previous event ID */
+        kFSEventStreamEventIdSinceNow,
         (CFAbsoluteTime)wm->delay,
         fsevents_events
-        /* kFSEventStreamCreateFlagNone /1* Flags explained in reference *1/ */
-        /* kFSEventStreamCreateFlagFileEvents */
-        /* kFSEventStreamCreateFlagWatchRoot | kFSEventStreamCreateFlagFileEvents */
     );
 
     CFRelease(pathsToWatch);
