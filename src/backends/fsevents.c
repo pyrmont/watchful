@@ -125,11 +125,12 @@ static int end_loop(WatchfulMonitor *wm) {
     FSEventStreamInvalidate(wm->ref);
     FSEventStreamRelease(wm->ref);
 
-    if (wm->thread) {
+    if (!pthread_equal(wm->thread, pthread_self())) {
         CFRunLoopStop(wm->loop);
         error = pthread_join(wm->thread, NULL);
         if (error) return 1;
         CFRelease(wm->loop);
+        wm->thread = pthread_self();
     }
 
     return 0;

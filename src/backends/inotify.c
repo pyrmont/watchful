@@ -302,11 +302,12 @@ static int setup(WatchfulMonitor *wm) {
 static int teardown(WatchfulMonitor *wm) {
     int error = 0;
 
-    if (wm->thread) {
+    if (!pthread_equal(wm->thread, pthread_self())) {
         error = pthread_kill(wm->thread, SIGUSR1);
         if (error) return 1;
         error = pthread_join(wm->thread, NULL);
         if (error) return 1;
+        wm->thread = pthread_self();
     }
 
     error = remove_watches(wm);
