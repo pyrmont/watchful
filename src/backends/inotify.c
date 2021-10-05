@@ -23,7 +23,6 @@ static char *path_for_wd(WatchfulMonitor *wm, int wd) {
 }
 
 static int handle_event(WatchfulMonitor *wm) {
-    /* debug_print("Event handler called\n"); */
     char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
     const struct inotify_event *notify_event;
 
@@ -52,8 +51,7 @@ static int handle_event(WatchfulMonitor *wm) {
             event_type = WATCHFUL_EVENT_MODIFIED;
         }
 
-        /* TODO: Is this logic right? */
-        if (!event_type || !(wm->events & event_type)) continue;
+        if (!(event_type && (wm->events & event_type))) continue;
 
         char *path_to_watch = path_for_wd(wm, notify_event->wd);
         if (NULL == path_to_watch) continue;
