@@ -1,4 +1,4 @@
-(import ../../build/_watchful)
+(import _watchful)
 
 
 (defn monitor [path &opt opts]
