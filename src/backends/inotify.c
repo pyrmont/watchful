@@ -14,9 +14,12 @@ bool start_waiting;
 pthread_mutex_t start_mutex;
 pthread_cond_t start_cond;
 
-static char *path_for_wd(WatchfulMonitor *wm, int wd) {
+/* Forward declarations */
+static int add_watch(WatchfulMonitor *wm, char *path);
+
+static WatchfulWatch *watch_for_wd(WatchfulMonitor *wm, int wd) {
     for (size_t i = 0; i < wm->watches_len; i++) {
-        if (wd == wm->watches[i]->wd) return wm->watches[i]->path;
+        if (wd == wm->watches[i]->wd) return wm->watches[i];
     }
 
     return NULL;
@@ -36,52 +39,73 @@ static int handle_event(WatchfulMonitor *wm) {
     int size = read(wm->fd, buf, sizeof(buf));
     if (size <= 0) return 1;
 
+    char *path = NULL;
+    WatchfulEvent *event = NULL;
+
     for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
-        int event_type = 0;
         notify_event = (const struct inotify_event *)ptr;
 
-        if (notify_event->mask & IN_CREATE) {
-            event_type = WATCHFUL_EVENT_CREATED;
-        } else if (notify_event->mask & IN_DELETE) {
-            event_type = WATCHFUL_EVENT_DELETED;
-        } else if (notify_event->mask & IN_MOVE) {
-            event_type = WATCHFUL_EVENT_MOVED;
-        } else if ((notify_event->mask & IN_MODIFY) ||
-                   (notify_event->mask & IN_ATTRIB)) {
-            event_type = WATCHFUL_EVENT_MODIFIED;
-        }
+        /* 1. Get watch for watch descriptor. */
+        WatchfulWatch *watch = watch_for_wd(wm, notify_event->wd);
+        if (NULL == watch) continue;
 
+        /* 2. Set event_type for this event. */
+        int event_type =
+            (notify_event->mask & IN_CREATE) ? WATCHFUL_EVENT_CREATED :
+            (notify_event->mask & IN_DELETE) ? WATCHFUL_EVENT_DELETED :
+            (notify_event->mask & IN_MOVE)   ? WATCHFUL_EVENT_MOVED :
+            (notify_event->mask & IN_MODIFY) ? WATCHFUL_EVENT_MODIFIED :
+            (notify_event->mask & IN_ATTRIB) ? WATCHFUL_EVENT_MODIFIED : 0;
+
+        /* 3. If event is not one we are watching, skip. */
         if (!(event_type && (wm->events & event_type))) continue;
 
-        char *path_to_watch = path_for_wd(wm, notify_event->wd);
-        if (NULL == path_to_watch) continue;
+        /* 4. Create absolute path for file. */
+        path = (notify_event->len) ?
+            watchful_path_create(notify_event->name, watch->path, (notify_event->mask & IN_ISDIR != 0)) :
+            watchful_path_create(watch->path, NULL, true);
+        if (path == NULL) goto error;
 
-        char *path;
-        if (notify_event->len) {
-            path = watchful_path_create(notify_event->name, path_to_watch, (notify_event->mask & IN_ISDIR != 0));
-        } else {
-            path = watchful_path_create(path_to_watch, NULL, true);
+        /* 5. If file path is not excluded. */
+        if (!watchful_monitor_excludes_path(wm, path)) {
+            /* 6. Add or remove watches as appropriate. */
+            char *copied_path;
+            switch (event_type) {
+                case WATCHFUL_EVENT_CREATED:
+                    copied_path = watchful_path_create(path, NULL, false);
+                    if (NULL == copied_path) goto error;
+                    add_watch(wm, copied_path);
+                    break;
+                default:
+                    break;
+            }
+
+            /* 7. Call callback with event data. */
+            event = malloc(sizeof(WatchfulEvent));
+            if (NULL == event) goto error;
+            event->type = event_type;
+            event->path = path;
+            wm->callback(event, wm->callback_info);
         }
-        if (path == NULL) return 1;
 
-        if (watchful_monitor_excludes_path(wm, path)) {
-            free(path);
-            continue;
-        }
-
-        WatchfulEvent *event = malloc(sizeof(WatchfulEvent));
-
-        event->type = event_type;
-        event->path = path;
-
-        wm->callback(event, wm->callback_info);
-
+        /* 8. Free memory. */
+        free(path);
+        path = NULL;
         event->type = 0;
-        free(event->path);
+        event->path = NULL;
         free(event);
+        event = NULL;
     }
 
     return 0;
+
+error:
+    free(path);
+    event->type = 0;
+    event->path = NULL;
+    free(event);
+
+    return 1;
 }
 
 static void *loop_runner(void *arg) {
@@ -163,34 +187,43 @@ static int remove_watches(WatchfulMonitor *wm) {
     return 0;
 }
 
-static WatchfulWatch *add_watch(int fd, char *path, int events) {
+static int add_watch(WatchfulMonitor *wm, char *path) {
     WatchfulWatch *watch = malloc(sizeof(WatchfulWatch));
-    if (NULL == watch) return NULL;
+    if (NULL == watch) return 1;
 
     int inotify_events = IN_ATTRIB | IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVE;
-    if (!(events & WATCHFUL_EVENT_CREATED))
+    if (!(wm->events & WATCHFUL_EVENT_CREATED))
         inotify_events = inotify_events ^ IN_CREATE;
-    if (!(events & WATCHFUL_EVENT_DELETED))
+    if (!(wm->events & WATCHFUL_EVENT_DELETED))
         inotify_events = inotify_events ^ IN_DELETE;
-    if (!(events & WATCHFUL_EVENT_MOVED))
+    if (!(wm->events & WATCHFUL_EVENT_MOVED))
         inotify_events = inotify_events ^ IN_MOVE;
-    if (!(events & WATCHFUL_EVENT_MODIFIED)) {
+    if (!(wm->events & WATCHFUL_EVENT_MODIFIED)) {
         inotify_events = inotify_events ^ IN_ATTRIB;
         inotify_events = inotify_events ^ IN_MODIFY;
     }
 
-    watch->wd = inotify_add_watch(fd, path, inotify_events);
+    watch->wd = inotify_add_watch(wm->fd, path, inotify_events);
     if (watch->wd == -1) goto error;
     watch->path = path;
 
-    return watch;
+    size_t len = wm->watches_len + 1;
+    WatchfulWatch **new_watches = realloc(wm->watches, sizeof(WatchfulWatch *) * len);
+    if (NULL == new_watches) goto error;
+    wm->watches = new_watches;
+    wm->watches[wm->watches_len] = watch;
+    wm->watches_len = len;
+
+    return 0;
 
 error:
     free(watch);
-    return NULL;
+    return 1;
 }
 
 static int add_watches(WatchfulMonitor *wm) {
+    int err = 0;
+
     wm->watches_len = 0;
     wm->watches = NULL;
 
@@ -198,14 +231,8 @@ static int add_watches(WatchfulMonitor *wm) {
     char *path = watchful_path_create(wm->path, NULL, true);
     if (NULL == path) goto error;
 
-    WatchfulWatch *watch = add_watch(wm->fd, path, wm->events);
-    if (NULL == watch) goto error;
-
-    wm->watches = malloc(sizeof(WatchfulWatch *));
-    if (NULL == wm->watches) goto error;
-    wm->watches[0] = watch;
-    wm->watches_len++;
-    watch = NULL;
+    err = add_watch(wm, path);
+    if (err) goto error;
 
     size_t paths_len = 1;
     size_t paths_max = 1;
@@ -215,7 +242,7 @@ static int add_watches(WatchfulMonitor *wm) {
     paths[0] = path;
     path = NULL;
 
-    DIR *dir;
+    DIR *dir = NULL;
     for (size_t i = 0; i < paths_len; i++) {
         dir = opendir(paths[i]);
         if (NULL == dir) continue;
@@ -234,6 +261,9 @@ static int add_watches(WatchfulMonitor *wm) {
             } else {
                 closedir(child_dir);
 
+                err = add_watch(wm, path);
+                if (err) goto error;
+
                 if (i + 1 == paths_max) {
                     char **new_paths = realloc(paths, sizeof(char *) * (paths_max * 2));
                     if (NULL == new_paths) goto error;
@@ -242,16 +272,6 @@ static int add_watches(WatchfulMonitor *wm) {
 
                 paths[paths_len] = path;
                 paths_len++;
-
-                watch = add_watch(wm->fd, path, wm->events);
-                if (NULL == watch) goto error;
-                path = NULL;
-
-                WatchfulWatch **new_watches = realloc(wm->watches, sizeof(WatchfulWatch *) * (wm->watches_len + 1));
-                if (NULL == new_watches) goto error;
-                wm->watches[wm->watches_len] = watch;
-                wm->watches_len++;
-                watch = NULL;
             }
         }
 
@@ -264,8 +284,7 @@ static int add_watches(WatchfulMonitor *wm) {
     return 0;
 
 error:
-    if (NULL != path) free(path);
-    if (NULL != watch) free(watch);
+    free(path);
     if (NULL != paths) {
         for (size_t i = 0; i < paths_len; i++) {
             if (NULL != paths[i]) free(paths[i]);
