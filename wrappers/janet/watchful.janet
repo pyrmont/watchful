@@ -23,24 +23,33 @@
   (ev/call supervise)
   (def pipe (os/pipe))
   (def output (get pipe 0))
+  (defn read-path []
+    (var path-length 0)
+    (while (def byte (first (ev/read output 1)))
+      (if (zero? byte)
+        (break)
+        (+= path-length byte)))
+    (if (zero? path-length)
+      nil
+      (string (ev/chunk output path-length))))
+  (defn create-event [event-type]
+    (if (= :renamed event-type)
+      (if-let [new-path (read-path)
+               old-path (read-path)]
+        {:type event-type :path new-path :old-path old-path})
+      {:type event-type :path (read-path)}))
   (defn receive []
     (forever
-      (var path-length 0)
-      (while (def byte (first (ev/read output 1)))
-        (if (zero? byte)
-          (break)
-          (+= path-length byte)))
-      (when (zero? path-length)
-        (ev/chan-close events)
-        (break))
-      (def event-path (string (ev/chunk output path-length)))
       (def event-type
         (case (first (ev/read output 1))
-          1 :created
-          2 :deleted
-          4 :moved
-          8 :modified))
-      (def event {:path event-path :type event-type})
+          1 :modified
+          2 :created
+          4 :deleted
+          8 :renamed))
+      (def event (create-event event-type))
+      (when (nil? event)
+        (ev/chan-close events)
+        (break))
       (def chan-open? (ev/give events event))
       (unless chan-open?
         (ev/close output)

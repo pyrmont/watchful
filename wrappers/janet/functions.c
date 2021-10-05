@@ -1,5 +1,33 @@
 #include "wrapper.h"
 
+static int send_path(int handle, const char *path) {
+    size_t null_byte = 0;
+    size_t len = strlen(path);
+    size_t max = 255;
+    size_t loops = len / max;
+    size_t rem = len % max;
+
+    ssize_t written_bytes = 0;
+
+    for (size_t i = 0; i < loops; i++)  {
+        written_bytes = write(handle, &max, 1);
+        if (written_bytes != 1) return 1;
+    }
+
+    if (rem) {
+        written_bytes = write(handle, &rem, 1);
+        if (written_bytes != 1) return 1;
+    }
+
+    written_bytes = write(handle, &null_byte, 1);
+    if (written_bytes != 1) return 1;
+
+    written_bytes = write(handle, path, len);
+    if (written_bytes != len) return 1;
+
+    return 0;
+}
+
 static int event_callback(const WatchfulEvent *event, void *info) {
     /* 1. Ignore sigpipe. */
     signal(SIGPIPE, SIG_IGN);
@@ -11,40 +39,34 @@ static int event_callback(const WatchfulEvent *event, void *info) {
     /* 3. Get handle. */
     int handle = (int)(input->handle);
 
-    ssize_t written_bytes = 0;
-
-    /* 4. Send the path length. */
-    size_t null_byte = 0;
-    size_t len = strlen(event->path);
-    size_t max = 255;
-    size_t loops = len / max;
-    size_t rem = len % max;
-    for (size_t i = 0; i < loops; i++)  {
-        written_bytes = write(handle, &max, 1);
-        if (written_bytes != 1) goto error;
-    }
-    if (rem) {
-        written_bytes = write(handle, &rem, 1);
-        if (written_bytes != 1) goto error;
-    }
-    written_bytes = write(handle, &null_byte, 1);
+    /* 4. Send the event type. */
+    ssize_t written_bytes = write(handle, &(event->type), 1);
     if (written_bytes != 1) goto error;
 
-    /* 5. Send the event path. */
-    written_bytes = write(handle, event->path, len);
-    if (written_bytes != len) goto error;
+    /* 5. Send the path. */
+    int err = 0;
+    switch (event->type) {
+        case WATCHFUL_EVENT_RENAMED:
+            err = send_path(handle, event->path);
+            if (err) goto error;
+            err = send_path(handle, event->old_path);
+            if (err) goto error;
+            break;
+        default:
+            err = send_path(handle, event->path);
+            if (err) goto error;
+            break;
+    }
 
-    /* 6. Send the event type. */
-    written_bytes = write(handle, &(event->type), 1);
-    if (written_bytes != 1) goto error;
-
-    /* 7. Reset signal. */
+    /* 6. Reset signal. */
     signal(SIGPIPE, SIG_DFL);
 
     return 0;
 
 error:
     janet_stream_close(input);
+    signal(SIGPIPE, SIG_DFL);
+
     return 1;
 }
 
@@ -86,14 +108,14 @@ JANET_FN(cfun_monitor,
         janet_indexed_view(excluded_events, &vals, (int32_t *)&excl_events_len);
         for (size_t i = 0; i < excl_events_len; i++) {
             JanetString excl_event = janet_unwrap_keyword(vals[i]);
-            if (!janet_cstrcmp(excl_event, "created"))
+            if (!janet_cstrcmp(excl_event, "modified"))
+                events = events ^ WATCHFUL_EVENT_MODIFIED;
+            else if (!janet_cstrcmp(excl_event, "created"))
                 events = events ^ WATCHFUL_EVENT_CREATED;
             else if (!janet_cstrcmp(excl_event, "deleted"))
                 events = events ^ WATCHFUL_EVENT_DELETED;
-            else if (!janet_cstrcmp(excl_event, "moved"))
-                events = events ^ WATCHFUL_EVENT_MOVED;
-            else if (!janet_cstrcmp(excl_event, "modified"))
-                events = events ^ WATCHFUL_EVENT_MODIFIED;
+            else if (!janet_cstrcmp(excl_event, "renamed"))
+                events = events ^ WATCHFUL_EVENT_RENAMED;
             else
                 janet_panicf("%j is not an ignorable event", vals[i]);
         }

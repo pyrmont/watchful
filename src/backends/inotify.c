@@ -17,6 +17,20 @@ pthread_cond_t start_cond;
 /* Forward declarations */
 static int add_watch(WatchfulMonitor *wm, char *path);
 
+static int translate_event(const struct inotify_event *event) {
+    if (event->cookie) {
+        return (event->mask & IN_MOVED_FROM) ? WATCHFUL_EVENT_RENAMED :
+               (event->mask & IN_MOVED_TO)   ? WATCHFUL_EVENT_RENAMED : 0;
+    } else {
+        return (event->mask & IN_CREATE)     ? WATCHFUL_EVENT_CREATED :
+               (event->mask & IN_DELETE)     ? WATCHFUL_EVENT_DELETED :
+               (event->mask & IN_MOVED_TO)   ? WATCHFUL_EVENT_CREATED :
+               (event->mask & IN_MOVED_FROM) ? WATCHFUL_EVENT_DELETED :
+               (event->mask & IN_MODIFY)     ? WATCHFUL_EVENT_MODIFIED :
+               (event->mask & IN_ATTRIB)     ? WATCHFUL_EVENT_MODIFIED : 0;
+    }
+}
+
 static WatchfulWatch *watch_for_wd(WatchfulMonitor *wm, int wd) {
     for (size_t i = 0; i < wm->watches_len; i++) {
         if (wd == wm->watches[i]->wd) return wm->watches[i];
@@ -40,6 +54,7 @@ static int handle_event(WatchfulMonitor *wm) {
     if (size <= 0) return 1;
 
     char *path = NULL;
+    char *old_path = NULL;
     WatchfulEvent *event = NULL;
 
     for (char *ptr = buf; ptr < buf + size; ptr += sizeof(struct inotify_event) + notify_event->len) {
@@ -50,14 +65,9 @@ static int handle_event(WatchfulMonitor *wm) {
         if (NULL == watch) continue;
 
         /* 2. Set event_type for this event. */
-        int event_type =
-            (notify_event->mask & IN_CREATE) ? WATCHFUL_EVENT_CREATED :
-            (notify_event->mask & IN_DELETE) ? WATCHFUL_EVENT_DELETED :
-            (notify_event->mask & IN_MOVE)   ? WATCHFUL_EVENT_MOVED :
-            (notify_event->mask & IN_MODIFY) ? WATCHFUL_EVENT_MODIFIED :
-            (notify_event->mask & IN_ATTRIB) ? WATCHFUL_EVENT_MODIFIED : 0;
+        int event_type = translate_event(notify_event);
 
-        /* 3. If event is not one we are watching, skip. */
+        /* 3. If event is excluded, skip. */
         if (!(event_type && (wm->events & event_type))) continue;
 
         /* 4. Create absolute path for file. */
@@ -66,33 +76,50 @@ static int handle_event(WatchfulMonitor *wm) {
             watchful_path_create(watch->path, NULL, true);
         if (path == NULL) goto error;
 
-        /* 5. If file path is not excluded. */
+        /* 5. If renaming, save old_path. */
+        if (event_type == WATCHFUL_EVENT_RENAMED && NULL == old_path) {
+            old_path = path;
+            path = NULL;
+            continue;
+        }
+
+        /* 6. If file path is not excluded. */
         if (!watchful_monitor_excludes_path(wm, path)) {
-            /* 6. Add or remove watches as appropriate. */
+            /* 7. Add or remove watches as appropriate. */
             char *copied_path;
+            int err;
             switch (event_type) {
                 case WATCHFUL_EVENT_CREATED:
+                case WATCHFUL_EVENT_RENAMED:
                     copied_path = watchful_path_create(path, NULL, false);
                     if (NULL == copied_path) goto error;
-                    add_watch(wm, copied_path);
+                    err = add_watch(wm, copied_path);
+                    if (err) free(copied_path);
+                    break;
+                case WATCHFUL_EVENT_DELETED:
+                    /* watch->wd = -1; */
                     break;
                 default:
                     break;
             }
 
-            /* 7. Call callback with event data. */
+            /* 8. Call callback with event data. */
             event = malloc(sizeof(WatchfulEvent));
             if (NULL == event) goto error;
             event->type = event_type;
             event->path = path;
+            event->old_path = old_path;
             wm->callback(event, wm->callback_info);
         }
 
-        /* 8. Free memory. */
+        /* 9. Free memory. */
         free(path);
         path = NULL;
+        free(old_path);
+        old_path = NULL;
         event->type = 0;
         event->path = NULL;
+        event->old_path = NULL;
         free(event);
         event = NULL;
     }
@@ -101,8 +128,10 @@ static int handle_event(WatchfulMonitor *wm) {
 
 error:
     free(path);
+    free(old_path);
     event->type = 0;
     event->path = NULL;
+    event->old_path = NULL;
     free(event);
 
     return 1;
@@ -191,13 +220,12 @@ static int add_watch(WatchfulMonitor *wm, char *path) {
     WatchfulWatch *watch = malloc(sizeof(WatchfulWatch));
     if (NULL == watch) return 1;
 
+    /* IN_MOVE is never removed */
     int inotify_events = IN_ATTRIB | IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVE;
     if (!(wm->events & WATCHFUL_EVENT_CREATED))
         inotify_events = inotify_events ^ IN_CREATE;
     if (!(wm->events & WATCHFUL_EVENT_DELETED))
         inotify_events = inotify_events ^ IN_DELETE;
-    if (!(wm->events & WATCHFUL_EVENT_MOVED))
-        inotify_events = inotify_events ^ IN_MOVE;
     if (!(wm->events & WATCHFUL_EVENT_MODIFIED)) {
         inotify_events = inotify_events ^ IN_ATTRIB;
         inotify_events = inotify_events ^ IN_MODIFY;

@@ -41,10 +41,10 @@
 /* Constants */
 #define WATCHFUL_EVENT_ALL      0xF
 #define WATCHFUL_EVENT_NONE     0x0
-#define WATCHFUL_EVENT_CREATED  0x1
-#define WATCHFUL_EVENT_DELETED  0x2
-#define WATCHFUL_EVENT_MOVED    0x4
-#define WATCHFUL_EVENT_MODIFIED 0x8
+#define WATCHFUL_EVENT_MODIFIED 0x1
+#define WATCHFUL_EVENT_CREATED  0x2
+#define WATCHFUL_EVENT_DELETED  0x4
+#define WATCHFUL_EVENT_RENAMED  0x8
 
 /* Forward Declarations */
 struct WatchfulWatch;
@@ -69,6 +69,7 @@ typedef struct WatchfulWatch {
 typedef struct WatchfulEvent {
     int type;
     char *path;
+    char *old_path;
 } WatchfulEvent;
 
 typedef struct WatchfulBackend {
