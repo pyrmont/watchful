@@ -54,7 +54,7 @@ static bool is_historical_event(WatchfulMonitor *wm, char *path, int flag, int e
         return false;
     } else if (event == WATCHFUL_EVENT_DELETED) {
         return false;
-    } else if (event == WATCHFUL_EVENT_MOVED) {
+    } else if (event == WATCHFUL_EVENT_RENAMED) {
         return false;
     } else if (event == WATCHFUL_EVENT_MODIFIED) {
         return false;
@@ -74,6 +74,10 @@ static void handle_event(
     char **paths = eventPaths;
     WatchfulMonitor *wm = clientCallBackInfo;
 
+    char *path = NULL;
+    char *old_path = NULL;
+    WatchfulEvent *event = NULL;
+
     for (size_t i = 0; i < numEvents; i++) {
         int event_type = 0;
 
@@ -84,8 +88,8 @@ static void handle_event(
                  !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_DELETED))
             event_type = event_type | WATCHFUL_EVENT_DELETED;
         else if ((eventFlags[i] & kFSEventStreamEventFlagItemRenamed) &&
-                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_MOVED))
-            event_type = event_type | WATCHFUL_EVENT_MOVED;
+                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_RENAMED))
+            event_type = event_type | WATCHFUL_EVENT_RENAMED;
         else if (((eventFlags[i] & kFSEventStreamEventFlagItemModified) ||
                   (eventFlags[i] & kFSEventStreamEventFlagItemXattrMod) ||
                   (eventFlags[i] & kFSEventStreamEventFlagItemInodeMetaMod)) &&
@@ -93,19 +97,39 @@ static void handle_event(
             event_type = event_type | WATCHFUL_EVENT_MODIFIED;
 
         if (!(event_type && (wm->events & event_type))) continue;
-        if (watchful_monitor_excludes_path(wm, paths[i])) continue;
 
-        WatchfulEvent *event = malloc(sizeof(WatchfulEvent));
+        if (event_type == WATCHFUL_EVENT_RENAMED && NULL == old_path) {
+            old_path = watchful_path_create(paths[i], NULL, eventFlags[i] & kFSEventStreamEventFlagItemIsDir);;
+            if (NULL == old_path) goto error;
+            continue;
+        }
 
-        event->type = event_type;
-        event->path = watchful_path_create(paths[i], NULL, eventFlags[i] & kFSEventStreamEventFlagItemIsDir);
+        if (!watchful_monitor_excludes_path(wm, paths[i])) {
+            path = watchful_path_create(paths[i], NULL, eventFlags[i] & kFSEventStreamEventFlagItemIsDir);
+            if (NULL == path) goto error;
+            event = malloc(sizeof(WatchfulEvent));
+            if (NULL == event) goto error;
+            event->type = event_type;
+            event->path = path;
+            event->old_path = old_path;
+            wm->callback(event, wm->callback_info);
+        }
 
-        wm->callback(event, wm->callback_info);
-
+        free(path);
+        path = NULL;
+        free(old_path);
+        old_path = NULL;
         event->type = 0;
-        free(event->path);
+        event->path = NULL;
+        event->old_path = NULL;
         free(event);
+        event = NULL;
     }
+
+error:
+    free(path);
+    free(old_path);
+    free(event);
 
     return;
 }
