@@ -86,15 +86,19 @@ static int handle_event(WatchfulMonitor *wm) {
         /* 6. If file path is not excluded. */
         if (!watchful_monitor_excludes_path(wm, path)) {
             /* 7. Add or remove watches as appropriate. */
-            char *copied_path;
-            int err;
+            char *copied_path = NULL;
+            int err = 0;
             switch (event_type) {
                 case WATCHFUL_EVENT_CREATED:
                 case WATCHFUL_EVENT_RENAMED:
                     copied_path = watchful_path_create(path, NULL, false);
                     if (NULL == copied_path) goto error;
-                    err = add_watch(wm, copied_path);
-                    if (err) free(copied_path);
+                    if (watchful_path_is_dir(copied_path)) {
+                        err = add_watch(wm, copied_path);
+                        if (err) free(copied_path);
+                    } else {
+                        free(copied_path);
+                    }
                     break;
                 case WATCHFUL_EVENT_DELETED:
                     /* watch->wd = -1; */
@@ -117,11 +121,22 @@ static int handle_event(WatchfulMonitor *wm) {
         path = NULL;
         free(old_path);
         old_path = NULL;
+        if (NULL != event) {
+            event->type = 0;
+            event->path = NULL;
+            event->old_path = NULL;
+            free(event);
+            event = NULL;
+        }
+    }
+
+    free(path);
+    free(old_path);
+    if (NULL != event) {
         event->type = 0;
         event->path = NULL;
         event->old_path = NULL;
         free(event);
-        event = NULL;
     }
 
     return 0;
@@ -129,10 +144,12 @@ static int handle_event(WatchfulMonitor *wm) {
 error:
     free(path);
     free(old_path);
-    event->type = 0;
-    event->path = NULL;
-    event->old_path = NULL;
-    free(event);
+    if (NULL != event) {
+        event->type = 0;
+        event->path = NULL;
+        event->old_path = NULL;
+        free(event);
+    }
 
     return 1;
 }
