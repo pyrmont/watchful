@@ -2,8 +2,10 @@
 (import ../wrappers/janet/watchful)
 
 
-(defn- rimraf
-  [path]
+(def tmp-root "tmp")
+
+
+(defn- rimraf [path]
   (if-let [m (os/stat path :mode)]
     (if (= m :directory)
       (do
@@ -12,8 +14,14 @@
       (os/rm path))))
 
 
+(defn- tmp-dir []
+  (def path (string tmp-root "/" (gensym)))
+  (os/mkdir path)
+  path)
+
+
 (deftest is-watching
-  (def path "tmp")
+  (def path (tmp-dir))
   (def monitor (watchful/monitor path))
   (is (not (watchful/watching? monitor)))
   (watchful/start monitor)
@@ -24,7 +32,7 @@
 
 (deftest watch
   (def cwd (string (os/cwd) "/"))
-  (def path "tmp")
+  (def path (tmp-dir))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f))
@@ -40,7 +48,7 @@
 
 (deftest watch-with-ignored-paths
   (def cwd (string (os/cwd) "/"))
-  (def path "tmp")
+  (def path (tmp-dir))
   (def ignored-file-1 (string path "/" (gensym) "ignored"))
   (def ignored-file-2 (string path "/" (gensym) "ignored"))
   (def noticed-file (string path "/" (gensym) "not-ignored"))
@@ -57,7 +65,7 @@
 
 (deftest watch-with-ignored-events
   (def cwd (string (os/cwd) "/"))
-  (def path "tmp")
+  (def path (tmp-dir))
   (def created-file (string path "/" (gensym) "created"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
@@ -71,7 +79,7 @@
 
 (deftest watch-with-moved-file
   (def cwd (string (os/cwd) "/"))
-  (def path "tmp")
+  (def path (tmp-dir))
   (def before-file (string path "/" (gensym) "before"))
   (def after-file (string path "/" (gensym) "after"))
   (def channel (ev/chan 1))
@@ -91,8 +99,8 @@
 
 (var reports nil)
 
-(defer (rimraf "tmp")
-  (os/mkdir "tmp")
+(defer (rimraf tmp-root)
+  (os/mkdir tmp-root)
   (set reports (run-tests! :exit-on-fail false)))
 
 (unless (all (fn [x] (-> (get x :failures) length zero?)) reports)
