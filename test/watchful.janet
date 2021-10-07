@@ -32,10 +32,10 @@
   (def event-1 (ev/take channel))
   (os/touch path)
   (def event-2 (ev/take channel))
-  (watchful/cancel fiber)
   (def expect {:path (string cwd path "/") :type :modified})
   (is (= expect event-1))
-  (is (= expect event-2)))
+  (is (= expect event-2))
+  (watchful/cancel fiber))
 
 
 (deftest watch-with-ignored-paths
@@ -46,13 +46,13 @@
   (def noticed-file (string path "/" (gensym) "not-ignored"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
-  (def fiber (watchful/watch path f {:ignored-paths [ignored-file-1 ignored-file-2]}))
+  (def fiber (watchful/watch path f nil {:ignored-paths [ignored-file-1 ignored-file-2]}))
   (spit ignored-file-1 "")
   (spit ignored-file-2 "")
   (spit noticed-file "")
   (def event (ev/take channel))
-  (watchful/cancel fiber)
-  (is (= (string cwd noticed-file) (get event :path))))
+  (is (= (string cwd noticed-file) (get event :path)))
+  (watchful/cancel fiber))
 
 
 (deftest watch-with-ignored-events
@@ -61,12 +61,12 @@
   (def created-file (string path "/" (gensym) "created"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
-  (def fiber (watchful/watch path f {:ignored-events [:modified]}))
+  (def fiber (watchful/watch path f nil {:ignored-events [:modified]}))
   (os/touch path)
   (spit created-file "")
   (def event (ev/take channel))
-  (watchful/cancel fiber)
-  (is (= (string cwd created-file) (get event :path))))
+  (is (= (string cwd created-file) (get event :path)))
+  (watchful/cancel fiber))
 
 
 (deftest watch-with-moved-file

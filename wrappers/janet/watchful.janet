@@ -66,11 +66,13 @@
   (_watchful/stop monitor))
 
 
-(defn watch [path on-event &opt opts]
+(defn watch [path on-event &opt on-cancel opts]
   (def monitor (_watchful/monitor path opts))
   (def signals (ev/chan 1))
   (def events (start monitor))
   (defn clean-up []
+    (unless (nil? on-cancel)
+      (on-cancel))
     (ev/chan-close events)
     (stop monitor))
   (defn supervise []
