@@ -3,6 +3,7 @@
 
 
 (def tmp-root "tmp")
+(def cwd (string (os/cwd) "/"))
 
 
 (defn- rimraf [path]
@@ -31,7 +32,6 @@
 
 
 (deftest watch
-  (def cwd (string (os/cwd) "/"))
   (def path (tmp-dir))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
@@ -47,7 +47,6 @@
 
 
 (deftest watch-with-ignored-paths
-  (def cwd (string (os/cwd) "/"))
   (def path (tmp-dir))
   (def ignored-file-1 (string path "/" (gensym) "ignored"))
   (def ignored-file-2 (string path "/" (gensym) "ignored"))
@@ -64,7 +63,6 @@
 
 
 (deftest watch-with-ignored-events
-  (def cwd (string (os/cwd) "/"))
   (def path (tmp-dir))
   (def created-file (string path "/" (gensym) "created"))
   (def channel (ev/chan 1))
@@ -78,7 +76,6 @@
 
 
 (deftest watch-with-moved-file
-  (def cwd (string (os/cwd) "/"))
   (def path (tmp-dir))
   (def before-file (string path "/" (gensym) "before"))
   (def after-file (string path "/" (gensym) "after"))
@@ -93,6 +90,26 @@
     (is (= expect-1 event-1)))
   (def event-2 (ev/take channel))
   (def expect-2 {:type :renamed :path (string cwd after-file) :old-path (string cwd before-file)})
+  (is (= expect-2 event-2))
+  (watchful/cancel fiber))
+
+
+(deftest watch-with-deleted-file
+  (def path (tmp-dir))
+  (def deleted-file (string path "/" (gensym) "deleted"))
+  (spit deleted-file "")
+  (def deleted-dir (string path "/" (gensym) "deleted"))
+  (os/mkdir deleted-dir)
+  (def channel (ev/chan 1))
+  (defn f [e] (ev/give channel e))
+  (def fiber (watchful/watch path f))
+  (os/rm deleted-file)
+  (def event-1 (ev/take channel))
+  (def expect-1 {:type :deleted :path (string cwd deleted-file)})
+  (is (= expect-1 event-1))
+  (os/rmdir deleted-dir)
+  (def event-2 (ev/take channel))
+  (def expect-2 {:type :deleted :path (string cwd deleted-dir)})
   (is (= expect-2 event-2))
   (watchful/cancel fiber))
 

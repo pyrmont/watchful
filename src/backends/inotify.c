@@ -16,18 +16,20 @@ pthread_cond_t start_cond;
 
 /* Forward declarations */
 static int add_watch(WatchfulMonitor *wm, char *path);
+static int remove_watch(WatchfulMonitor *wm, WatchfulWatch *watch);
 
 static int translate_event(const struct inotify_event *event) {
     if (event->cookie) {
-        return (event->mask & IN_MOVED_FROM) ? WATCHFUL_EVENT_RENAMED :
-               (event->mask & IN_MOVED_TO)   ? WATCHFUL_EVENT_RENAMED : 0;
+        return (event->mask & IN_MOVED_FROM)  ? WATCHFUL_EVENT_RENAMED :
+               (event->mask & IN_MOVED_TO)    ? WATCHFUL_EVENT_RENAMED : 0;
     } else {
-        return (event->mask & IN_CREATE)     ? WATCHFUL_EVENT_CREATED :
-               (event->mask & IN_DELETE)     ? WATCHFUL_EVENT_DELETED :
-               (event->mask & IN_MOVED_TO)   ? WATCHFUL_EVENT_CREATED :
-               (event->mask & IN_MOVED_FROM) ? WATCHFUL_EVENT_DELETED :
-               (event->mask & IN_MODIFY)     ? WATCHFUL_EVENT_MODIFIED :
-               (event->mask & IN_ATTRIB)     ? WATCHFUL_EVENT_MODIFIED : 0;
+        return (event->mask & IN_CREATE)      ? WATCHFUL_EVENT_CREATED :
+               (event->mask & IN_DELETE)      ? WATCHFUL_EVENT_DELETED :
+               (event->mask & IN_DELETE_SELF) ? WATCHFUL_EVENT_DELETED :
+               (event->mask & IN_MOVED_TO)    ? WATCHFUL_EVENT_CREATED :
+               (event->mask & IN_MOVED_FROM)  ? WATCHFUL_EVENT_DELETED :
+               (event->mask & IN_MODIFY)      ? WATCHFUL_EVENT_MODIFIED :
+               (event->mask & IN_ATTRIB)      ? WATCHFUL_EVENT_MODIFIED : 0;
     }
 }
 
@@ -94,6 +96,7 @@ static int handle_event(WatchfulMonitor *wm) {
                     copied_path = watchful_path_create(path, NULL, false);
                     if (NULL == copied_path) goto error;
                     if (watchful_path_is_dir(copied_path)) {
+                        /* TODO: inotify man page recommends scanning and adding */
                         err = add_watch(wm, copied_path);
                         if (err) free(copied_path);
                     } else {
@@ -101,7 +104,7 @@ static int handle_event(WatchfulMonitor *wm) {
                     }
                     break;
                 case WATCHFUL_EVENT_DELETED:
-                    /* watch->wd = -1; */
+                    if (notify_event->mask & IN_DELETE_SELF) remove_watch(wm, watch);
                     break;
                 default:
                     break;
@@ -217,11 +220,18 @@ static int start_loop(WatchfulMonitor *wm) {
     return 0;
 }
 
+static int remove_watch(WatchfulMonitor *wm, WatchfulWatch *watch) {
+    if (watch->wd == -1) return 1;
+    inotify_rm_watch(wm->fd, watch->wd);
+    watch->wd = -1;
+    return 0;
+}
+
 static int remove_watches(WatchfulMonitor *wm) {
     if (NULL == wm) return 1;
 
     for (size_t i = 0; i < wm->watches_len; i++) {
-        inotify_rm_watch(wm->fd, wm->watches[i]->wd);
+        remove_watch(wm, wm->watches[i]);
         free(wm->watches[i]->path);
         free(wm->watches[i]);
     }
@@ -237,15 +247,18 @@ static int add_watch(WatchfulMonitor *wm, char *path) {
     WatchfulWatch *watch = malloc(sizeof(WatchfulWatch));
     if (NULL == watch) return 1;
 
-    /* IN_MOVE is never removed */
     int inotify_events = IN_ATTRIB | IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVE;
+    if (!(wm->events & WATCHFUL_EVENT_MODIFIED)) {
+        inotify_events = inotify_events ^ IN_ATTRIB;
+        inotify_events = inotify_events ^ IN_MODIFY;
+    }
     if (!(wm->events & WATCHFUL_EVENT_CREATED))
         inotify_events = inotify_events ^ IN_CREATE;
     if (!(wm->events & WATCHFUL_EVENT_DELETED))
         inotify_events = inotify_events ^ IN_DELETE;
-    if (!(wm->events & WATCHFUL_EVENT_MODIFIED)) {
-        inotify_events = inotify_events ^ IN_ATTRIB;
-        inotify_events = inotify_events ^ IN_MODIFY;
+    if (!(wm->events & WATCHFUL_EVENT_RENAMED)) {
+        inotify_events = inotify_events ^ IN_MOVED_TO;
+        inotify_events = inotify_events ^ IN_MOVED_FROM;
     }
 
     watch->wd = inotify_add_watch(wm->fd, path, inotify_events);
@@ -313,6 +326,8 @@ static int add_watches(WatchfulMonitor *wm) {
                     char **new_paths = realloc(paths, sizeof(char *) * (paths_max * 2));
                     if (NULL == new_paths) goto error;
                     paths_max = paths_max * 2;
+                    paths = new_paths;
+                    new_paths = NULL;
                 }
 
                 paths[paths_len] = path;
