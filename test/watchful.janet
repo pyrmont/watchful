@@ -6,6 +6,17 @@
 (def cwd (string (os/cwd) "/"))
 
 
+(defn- mkdir-p [path]
+  (->> (string/split "/" path)
+       (reduce (fn [acc x]
+                 (def curr-path (string acc x "/"))
+                 (os/mkdir curr-path)
+                 curr-path)
+               (if (string/has-prefix? "/" path)
+                 "/"
+                 ""))))
+
+
 (defn- rimraf [path]
   (if-let [m (os/stat path :mode)]
     (if (= m :directory)
@@ -110,6 +121,30 @@
   (os/rmdir deleted-dir)
   (def event-2 (ev/take channel))
   (def expect-2 {:type :deleted :path (string cwd deleted-dir)})
+  (is (= expect-2 event-2))
+  (watchful/cancel fiber))
+
+
+(deftest watch-with-nested-dirs
+  (def path (tmp-dir))
+  (def before-parent (string path "/before"))
+  (os/mkdir before-parent)
+  (def after-parent (string path "/after"))
+  (os/mkdir after-parent)
+  (def before-nested-dir (string before-parent "/moved"))
+  (os/mkdir before-nested-dir)
+  (def after-nested-dir (string after-parent "/moved"))
+  (def created-file (string after-nested-dir "/" (gensym) "created"))
+  (def channel (ev/chan 1))
+  (defn f [e] (ev/give channel e))
+  (def fiber (watchful/watch path f))
+  (os/rename before-nested-dir after-nested-dir)
+  (def event-1 (ev/take channel))
+  (def expect-1 {:type :renamed :path (string cwd after-nested-dir) :old-path (string cwd before-nested-dir)})
+  (is (= expect-1 event-1))
+  (spit created-file "")
+  (def event-2 (ev/take channel))
+  (def expect-2 {:type :created :path (string cwd created-file)})
   (is (= expect-2 event-2))
   (watchful/cancel fiber))
 

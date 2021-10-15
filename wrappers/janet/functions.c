@@ -2,7 +2,7 @@
 
 static int send_path(int handle, const char *path) {
     size_t null_byte = 0;
-    size_t len = strlen(path);
+    size_t len = (NULL == path) ? 0 : strlen(path);
     size_t max = 255;
     size_t loops = len / max;
     size_t rem = len % max;
@@ -22,8 +22,10 @@ static int send_path(int handle, const char *path) {
     written_bytes = write(handle, &null_byte, 1);
     if (written_bytes != 1) return 1;
 
-    written_bytes = write(handle, path, len);
-    if (written_bytes != len) return 1;
+    if (len > 0) {
+        written_bytes = write(handle, path, len);
+        if (written_bytes != len) return 1;
+    }
 
     return 0;
 }

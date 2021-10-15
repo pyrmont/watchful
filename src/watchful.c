@@ -77,6 +77,10 @@ bool watchful_path_is_dir(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
+bool watchful_path_is_prefixed(const char *path, const char *prefix) {
+    return strncmp(prefix, path, strlen(prefix)) == 0;
+}
+
 /* Monitor Functions */
 
 int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char **excl_paths, int events, double delay, WatchfulCallback cb, void *cb_info) {

@@ -15,7 +15,7 @@
 (def platform-cflags
   (case (os/which)
    :macos ["-DMACOS=1" "-Wno-unused-command-line-argument"]
-   :linux ["-DLINUX=1" "-pthread"]
+   :linux ["-DLINUX=1" "-pthread" "-O0" "-g3"]
    []))
 
 

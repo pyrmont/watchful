@@ -34,8 +34,8 @@
       (string (ev/chunk output path-length))))
   (defn create-event [event-type]
     (if (= :renamed event-type)
-      (if-let [new-path (read-path)
-               old-path (read-path)]
+      (let [new-path (read-path)
+            old-path (read-path)]
         {:type event-type :path new-path :old-path old-path})
       {:type event-type :path (read-path)}))
   (defn receive []

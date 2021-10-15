@@ -63,7 +63,6 @@ typedef int (*WatchfulCallback)(const struct WatchfulEvent *, void *);
 typedef struct WatchfulWatch {
     int wd;
     char *path;
-    struct WatchfulWatch *next;
 } WatchfulWatch;
 
 typedef struct WatchfulEvent {
@@ -133,6 +132,7 @@ extern WatchfulBackend watchful_inotify;
 /* Path Functions */
 char *watchful_path_create(const char *path, const char *prefix, bool is_dir);
 bool watchful_path_is_dir(const char *path);
+bool watchful_path_is_prefixed(const char *path, const char *prefix);
 
 /* Monitor Functions */
 int watchful_monitor_init(WatchfulMonitor *wm, WatchfulBackend *backend, const char *path, size_t excl_paths_len, const char** excl_paths, int events, double delay, WatchfulCallback cb, void *cb_info);

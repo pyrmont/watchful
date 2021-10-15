@@ -15,8 +15,10 @@ pthread_mutex_t start_mutex;
 pthread_cond_t start_cond;
 
 /* Forward declarations */
-static int add_watch(WatchfulMonitor *wm, char *path);
 static int remove_watch(WatchfulMonitor *wm, WatchfulWatch *watch);
+static int remove_watches_from_root(WatchfulMonitor *wm, const char *root);
+static int add_watch(WatchfulMonitor *wm, char *path);
+static int add_watches_to_root(WatchfulMonitor *wm, const char *root);
 
 static int translate_event(const struct inotify_event *event) {
     if (event->cookie) {
@@ -78,29 +80,26 @@ static int handle_event(WatchfulMonitor *wm) {
             watchful_path_create(watch->path, NULL, true);
         if (path == NULL) goto error;
 
-        /* 5. If renaming, save old_path. */
-        if (event_type == WATCHFUL_EVENT_RENAMED && NULL == old_path) {
-            old_path = path;
-            path = NULL;
-            continue;
-        }
-
-        /* 6. If file path is not excluded. */
+        /* 5. If file path is not excluded. */
         if (!watchful_monitor_excludes_path(wm, path)) {
-            /* 7. Add or remove watches as appropriate. */
-            char *copied_path = NULL;
+            /* 6. Add or remove watches as appropriate. */
             int err = 0;
             switch (event_type) {
                 case WATCHFUL_EVENT_CREATED:
+                    if (!watchful_path_is_dir(path)) break;
+                    err = add_watches_to_root(wm, path);
+                    if (err) goto error;
+                    break;
                 case WATCHFUL_EVENT_RENAMED:
-                    copied_path = watchful_path_create(path, NULL, false);
-                    if (NULL == copied_path) goto error;
-                    if (watchful_path_is_dir(copied_path)) {
-                        /* TODO: inotify man page recommends scanning and adding */
-                        err = add_watch(wm, copied_path);
-                        if (err) free(copied_path);
-                    } else {
-                        free(copied_path);
+                    if (notify_event->mask & IN_MOVED_FROM) {
+                        /* Find other way to check if dir */
+                        remove_watches_from_root(wm, path);
+                        old_path = path;
+                        path = NULL;
+                        continue;
+                    } else if (watchful_path_is_dir(path)) {
+                        err = add_watches_to_root(wm, path);
+                        if (err) goto error;
                     }
                     break;
                 case WATCHFUL_EVENT_DELETED:
@@ -110,7 +109,7 @@ static int handle_event(WatchfulMonitor *wm) {
                     break;
             }
 
-            /* 8. Call callback with event data. */
+            /* 7. Call callback with event data. */
             event = malloc(sizeof(WatchfulEvent));
             if (NULL == event) goto error;
             event->type = event_type;
@@ -119,40 +118,25 @@ static int handle_event(WatchfulMonitor *wm) {
             wm->callback(event, wm->callback_info);
         }
 
-        /* 9. Free memory. */
+        /* 8. Free memory. */
         free(path);
         path = NULL;
         free(old_path);
         old_path = NULL;
-        if (NULL != event) {
-            event->type = 0;
-            event->path = NULL;
-            event->old_path = NULL;
-            free(event);
-            event = NULL;
-        }
+        free(event);
+        event = NULL;
     }
 
     free(path);
     free(old_path);
-    if (NULL != event) {
-        event->type = 0;
-        event->path = NULL;
-        event->old_path = NULL;
-        free(event);
-    }
+    free(event);
 
     return 0;
 
 error:
     free(path);
     free(old_path);
-    if (NULL != event) {
-        event->type = 0;
-        event->path = NULL;
-        event->old_path = NULL;
-        free(event);
-    }
+    free(event);
 
     return 1;
 }
@@ -227,8 +211,16 @@ static int remove_watch(WatchfulMonitor *wm, WatchfulWatch *watch) {
     return 0;
 }
 
+static int remove_watches_from_root(WatchfulMonitor *wm, const char *root) {
+    for (size_t i = 0; i < wm->watches_len; i++) {
+        if (watchful_path_is_prefixed(wm->watches[i]->path, root)) {
+            remove_watch(wm, wm->watches[i]);
+        }
+    }
+}
+
 static int remove_watches(WatchfulMonitor *wm) {
-    if (NULL == wm) return 1;
+    /* if (NULL == wm) return 1; */
 
     for (size_t i = 0; i < wm->watches_len; i++) {
         remove_watch(wm, wm->watches[i]);
@@ -237,8 +229,6 @@ static int remove_watches(WatchfulMonitor *wm) {
     }
 
     free(wm->watches);
-    wm->watches = NULL;
-    wm->watches_len = 0;
 
     return 0;
 }
@@ -279,14 +269,14 @@ error:
     return 1;
 }
 
-static int add_watches(WatchfulMonitor *wm) {
+static int add_watches_to_root(WatchfulMonitor *wm, const char *root) {
     int err = 0;
-
-    wm->watches_len = 0;
-    wm->watches = NULL;
+    char *path = NULL;
+    char **paths = NULL;
+    DIR *dir = NULL;
 
     /* This assumes that the path is a directory */
-    char *path = watchful_path_create(wm->path, NULL, true);
+    path = watchful_path_create(root, NULL, true);
     if (NULL == path) goto error;
 
     err = add_watch(wm, path);
@@ -294,13 +284,12 @@ static int add_watches(WatchfulMonitor *wm) {
 
     size_t paths_len = 1;
     size_t paths_max = 1;
-    char **paths = malloc(sizeof(char *) * paths_max);
+    paths = malloc(sizeof(char *) * paths_max);
     if (NULL == paths) goto error;
 
     paths[0] = path;
     path = NULL;
 
-    DIR *dir = NULL;
     for (size_t i = 0; i < paths_len; i++) {
         dir = opendir(paths[i]);
         if (NULL == dir) continue;
@@ -313,16 +302,21 @@ static int add_watches(WatchfulMonitor *wm) {
             if (NULL == path) goto error;
 
             DIR *child_dir = opendir(path);
-            if (NULL == child_dir || watchful_monitor_excludes_path(wm, path)) {
+            if (NULL == child_dir) {
                 free(path);
+                path = NULL;
                 continue;
-            } else {
-                closedir(child_dir);
+            }
+            closedir(child_dir);
 
+            if (watchful_monitor_excludes_path(wm, path)) {
+                free(path);
+                path = NULL;
+            } else {
                 err = add_watch(wm, path);
                 if (err) goto error;
 
-                if (i + 1 == paths_max) {
+                if (paths_len == paths_max) {
                     char **new_paths = realloc(paths, sizeof(char *) * (paths_max * 2));
                     if (NULL == new_paths) goto error;
                     paths_max = paths_max * 2;
@@ -331,12 +325,14 @@ static int add_watches(WatchfulMonitor *wm) {
                 }
 
                 paths[paths_len] = path;
+                path = NULL;
                 paths_len++;
             }
         }
 
-        paths[i] = NULL;
         closedir(dir);
+        dir = NULL;
+        paths[i] = NULL;
     }
 
     free(paths);
@@ -344,7 +340,10 @@ static int add_watches(WatchfulMonitor *wm) {
     return 0;
 
 error:
+    closedir(dir);
+
     free(path);
+
     if (NULL != paths) {
         for (size_t i = 0; i < paths_len; i++) {
             if (NULL != paths[i]) free(paths[i]);
@@ -352,9 +351,23 @@ error:
         free(paths);
     }
 
+    return 1;
+}
+
+static int add_watches(WatchfulMonitor *wm) {
+    int err = 0;
+
+    wm->watches_len = 0;
+    wm->watches = NULL;
+
+    err = add_watches_to_root(wm, wm->path);
+    if (err) goto error;
+
+    return 0;
+
+error:
     remove_watches(wm);
 
-    closedir(dir);
     close(wm->fd);
     wm->fd = -1;
 
