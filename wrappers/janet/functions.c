@@ -1,75 +1,89 @@
 #include "wrapper.h"
 
-static int send_path(int handle, const char *path) {
-    size_t null_byte = 0;
-    size_t len = (NULL == path) ? 0 : strlen(path);
-    size_t max = 255;
-    size_t loops = len / max;
-    size_t rem = len % max;
+static void ev_callback(JanetEVGenericMessage msg) {
+    size_t pairs_len = 3;
+    WatchfulEvent *event = msg.argp;
+    JanetKV *st = janet_struct_begin(pairs_len);
 
-    ssize_t written_bytes = 0;
-
-    for (size_t i = 0; i < loops; i++)  {
-        written_bytes = write(handle, &max, 1);
-        if (written_bytes != 1) return 1;
-    }
-
-    if (rem) {
-        written_bytes = write(handle, &rem, 1);
-        if (written_bytes != 1) return 1;
-    }
-
-    written_bytes = write(handle, &null_byte, 1);
-    if (written_bytes != 1) return 1;
-
-    if (len > 0) {
-        written_bytes = write(handle, path, len);
-        if (written_bytes != len) return 1;
-    }
-
-    return 0;
-}
-
-static int event_callback(const WatchfulEvent *event, void *info) {
-    /* 1. Ignore sigpipe. */
-    signal(SIGPIPE, SIG_IGN);
-
-    /* 2. Get pipe. */
-    JanetTuple pipe = (JanetTuple)info;
-    JanetStream *input = janet_unwrap_abstract(pipe[1]);
-
-    /* 3. Get handle. */
-    int handle = (int)(input->handle);
-
-    /* 4. Send the event type. */
-    ssize_t written_bytes = write(handle, &(event->type), 1);
-    if (written_bytes != 1) goto error;
-
-    /* 5. Send the path. */
-    int err = 0;
+    Janet event_type;
     switch (event->type) {
+        case WATCHFUL_EVENT_MODIFIED:
+            event_type = janet_ckeywordv("modified");
+            break;
+        case WATCHFUL_EVENT_CREATED:
+            event_type = janet_ckeywordv("created");
+            break;
+        case WATCHFUL_EVENT_DELETED:
+            event_type = janet_ckeywordv("deleted");
+            break;
         case WATCHFUL_EVENT_RENAMED:
-            err = send_path(handle, event->path);
-            if (err) goto error;
-            err = send_path(handle, event->old_path);
-            if (err) goto error;
+            event_type = janet_ckeywordv("renamed");
             break;
         default:
-            err = send_path(handle, event->path);
-            if (err) goto error;
-            break;
+            event_type = janet_wrap_nil();
     }
 
-    /* 6. Reset signal. */
-    signal(SIGPIPE, SIG_DFL);
+    janet_struct_put(st, janet_ckeywordv("type"), event_type);
+    janet_struct_put(st, janet_ckeywordv("path"), janet_cstringv(event->path));
+    if (NULL != event->old_path) {
+        janet_struct_put(st, janet_ckeywordv("old-path"), janet_cstringv(event->old_path));
+    }
 
-    return 0;
+    free(event->path);
+    free(event->old_path);
+    free(event);
+
+    JanetFunction *give = janet_unwrap_function(msg.argj);
+    Janet args[1] = { janet_wrap_struct(janet_struct_end(st)) };
+    Janet result;
+    janet_pcall(give, 1, args, &result, NULL);
+
+    return;
+}
+
+static WatchfulEvent *copy_event(const WatchfulEvent *src) {
+    WatchfulEvent *event = malloc(sizeof(WatchfulEvent));
+    if (NULL == event) return NULL;
+
+    event->type = src->type;
+    event->path = NULL;
+    event->old_path = NULL;
+
+    event->path = malloc(sizeof(char) * (strlen(src->path) + 1));
+    if (NULL == event->path) goto error;
+    strcpy(event->path, src->path);
+
+    if (NULL == src->old_path) {
+        event->old_path = NULL;
+    } else {
+        event->old_path = malloc(sizeof(char) * (strlen(src->old_path) + 1));
+        if (NULL == event->old_path) goto error;
+        strcpy(event->old_path, src->old_path);
+    }
+
+    return event;
 
 error:
-    janet_stream_close(input);
-    signal(SIGPIPE, SIG_DFL);
+    free(event->path);
+    free(event->old_path);
+    free(event);
 
-    return 1;
+    return NULL;
+}
+
+static int monitor_callback(const WatchfulEvent *event, void *info) {
+    CallbackInfo *callback_info = (CallbackInfo *)info;
+
+    WatchfulEvent *copy = copy_event(event);
+    if (NULL == copy) return 1;
+
+    JanetEVGenericMessage msg = {0};
+    msg.argp = (void *)copy;
+    msg.argj = janet_wrap_function(callback_info->fn);
+
+    janet_ev_post_event(callback_info->vm, ev_callback, msg);
+
+    return 0;
 }
 
 /* Exposed Functions */
@@ -126,26 +140,12 @@ JANET_FN(cfun_monitor,
     double delay = 0;
 
     WatchfulMonitor *wm = janet_abstract(&watchful_monitor_type, sizeof(WatchfulMonitor));
-    int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, delay, event_callback, NULL);
+    int error = watchful_monitor_init(wm, backend, path, excl_paths_len, excl_paths, events, delay, monitor_callback, NULL);
     if (error) janet_panic("cannot initialise monitor");
 
     if (NULL != excl_paths) janet_sfree(excl_paths);
 
     return janet_wrap_abstract(wm);
-}
-
-JANET_FN(cfun_get_pipe,
-        "(_watchful/get-pipe monitor)",
-        "Native function for getting the output pipe") {
-    janet_fixarity(argc, 1);
-
-    WatchfulMonitor *wm = janet_getabstract(argv, 0, &watchful_monitor_type);
-
-    JanetTuple pipe = (JanetTuple)(wm->callback_info);
-    if (NULL == pipe) janet_panic("no pipe");
-    JanetStream *output = janet_unwrap_abstract(pipe[0]);
-
-    return janet_wrap_abstract(output);
 }
 
 JANET_FN(cfun_is_watching,
@@ -159,20 +159,23 @@ JANET_FN(cfun_is_watching,
 }
 
 JANET_FN(cfun_start,
-        "(_watchful/start monitor pipe)",
+        "(_watchful/start monitor channel)",
         "Native function for starting a watch") {
     janet_fixarity(argc, 2);
 
     WatchfulMonitor *wm = janet_getabstract(argv, 0, &watchful_monitor_type);
 
-    JanetTuple pipe = janet_gettuple(argv, 1);
-    if (NULL == pipe) janet_panic("cannot get pipe");
-    wm->callback_info = (void *)pipe;
+    JanetFunction *give_fn = janet_unwrap_function(argv[1]);
+    if (NULL == give_fn) janet_panic("cannot get channel");
 
-    int error = 0;
+    CallbackInfo *callback_info = malloc(sizeof(CallbackInfo));
+    if (NULL == callback_info) janet_panic("cannot create callback info");
+    callback_info->vm = janet_local_vm();
+    callback_info->fn = give_fn;
+    wm->callback_info = callback_info;
 
-    error = watchful_monitor_start(wm);
-    if (error) janet_panic("failed to start monitor cleanly");
+    int err = watchful_monitor_start(wm);
+    if (err) janet_panic("failed to start monitor cleanly");
 
     return janet_wrap_nil();
 }
@@ -194,7 +197,6 @@ JANET_FN(cfun_stop,
 JANET_MODULE_ENTRY(JanetTable *env) {
     janet_cfuns_ext(env, "_watchful", (JanetRegExt[]) {
         JANET_REG("monitor", cfun_monitor),
-        JANET_REG("get-pipe", cfun_get_pipe),
         JANET_REG("start", cfun_start),
         JANET_REG("stop", cfun_stop),
         JANET_REG("watching?", cfun_is_watching),

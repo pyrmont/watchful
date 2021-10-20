@@ -4,7 +4,9 @@
 
 static int watchful_monitor_gc(void *p, size_t size) {
     (void) size;
-    watchful_monitor_deinit((WatchfulMonitor *)p);
+    WatchfulMonitor *wm = (WatchfulMonitor *)p;
+    free(wm->callback_info);
+    watchful_monitor_deinit(wm);
     return 0;
 }
 
@@ -13,8 +15,8 @@ static int watchful_monitor_gc(void *p, size_t size) {
 static int watchful_monitor_mark(void *p, size_t size) {
     (void) size;
     WatchfulMonitor *wm = (WatchfulMonitor *)p;
-    JanetTuple pipe = (JanetTuple)wm->callback_info;
-    janet_mark(janet_wrap_tuple(pipe));
+    CallbackInfo *callback_info = wm->callback_info;
+    janet_mark(janet_wrap_function(callback_info->fn));
     return 0;
 }
 

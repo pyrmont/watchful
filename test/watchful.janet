@@ -44,7 +44,7 @@
 
 (deftest watch
   (def path (tmp-dir))
-  (def channel (ev/chan 1))
+  (def channel (ev/chan))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f))
   (os/touch path)

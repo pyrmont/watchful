@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 /* Wildmatch */
 #include "wildmatch.h"
@@ -22,6 +21,7 @@
 /* POSIX */
 #include <pthread.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #ifdef INOTIFY
 #include <dirent.h>
@@ -34,7 +34,6 @@
 #endif
 
 #ifdef FSEVENTS
-#include <time.h>
 #include <CoreServices/CoreServices.h>
 #endif
 
@@ -89,7 +88,7 @@ typedef struct WatchfulMonitor {
     int events;
     double delay;
     WatchfulCallback callback;
-    WatchfulEvent *callback_info;
+    void *callback_info;
     bool is_watching;
     WatchfulThread thread;
 #if defined(INOTIFY)
