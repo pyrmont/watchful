@@ -159,14 +159,14 @@ JANET_FN(cfun_is_watching,
 }
 
 JANET_FN(cfun_start,
-        "(_watchful/start monitor channel)",
+        "(_watchful/start monitor give-fn)",
         "Native function for starting a watch") {
     janet_fixarity(argc, 2);
 
     WatchfulMonitor *wm = janet_getabstract(argv, 0, &watchful_monitor_type);
 
     JanetFunction *give_fn = janet_unwrap_function(argv[1]);
-    if (NULL == give_fn) janet_panic("cannot get channel");
+    if (NULL == give_fn) janet_panic("cannot get give function");
 
     CallbackInfo *callback_info = malloc(sizeof(CallbackInfo));
     if (NULL == callback_info) janet_panic("cannot create callback info");
