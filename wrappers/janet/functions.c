@@ -1,9 +1,7 @@
 #include "wrapper.h"
 
 static void ev_callback(JanetEVGenericMessage msg) {
-    size_t pairs_len = 3;
     WatchfulEvent *event = msg.argp;
-    JanetKV *st = janet_struct_begin(pairs_len);
 
     Janet event_type;
     switch (event->type) {
@@ -23,7 +21,9 @@ static void ev_callback(JanetEVGenericMessage msg) {
             event_type = janet_wrap_nil();
     }
 
+    JanetKV *st = janet_struct_begin(4);
     janet_struct_put(st, janet_ckeywordv("type"), event_type);
+    janet_struct_put(st, janet_ckeywordv("at"), janet_wrap_integer(event->at));
     janet_struct_put(st, janet_ckeywordv("path"), janet_cstringv(event->path));
     if (NULL != event->old_path) {
         janet_struct_put(st, janet_ckeywordv("old-path"), janet_cstringv(event->old_path));
@@ -46,6 +46,7 @@ static WatchfulEvent *copy_event(const WatchfulEvent *src) {
     if (NULL == event) return NULL;
 
     event->type = src->type;
+    event->at = src->at;
     event->path = NULL;
     event->old_path = NULL;
 

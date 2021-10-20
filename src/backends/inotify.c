@@ -113,6 +113,7 @@ static int handle_event(WatchfulMonitor *wm) {
             event = malloc(sizeof(WatchfulEvent));
             if (NULL == event) goto error;
             event->type = event_type;
+            event->at = time(NULL);
             event->path = path;
             event->old_path = old_path;
             wm->callback(event, wm->callback_info);

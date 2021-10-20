@@ -66,6 +66,7 @@ typedef struct WatchfulWatch {
 
 typedef struct WatchfulEvent {
     int type;
+    time_t at;
     char *path;
     char *old_path;
 } WatchfulEvent;
