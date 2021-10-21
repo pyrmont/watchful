@@ -9,7 +9,7 @@
 
 
 (def cflags
-  ["-Wno-unused-parameter"])
+  ["-Wpedantic" "-Wall" "-Wextra"])
 
 
 (def platform-cflags

@@ -76,7 +76,7 @@ static int handle_event(WatchfulMonitor *wm) {
 
         /* 4. Create absolute path for file. */
         path = (notify_event->len) ?
-            watchful_path_create(notify_event->name, watch->path, (notify_event->mask & IN_ISDIR != 0)) :
+            watchful_path_create(notify_event->name, watch->path, (notify_event->mask & IN_ISDIR) != 0) :
             watchful_path_create(watch->path, NULL, true);
         if (path == NULL) goto error;
 
@@ -218,6 +218,7 @@ static int remove_watches_from_root(WatchfulMonitor *wm, const char *root) {
             remove_watch(wm, wm->watches[i]);
         }
     }
+    return 0;
 }
 
 static int remove_watches(WatchfulMonitor *wm) {
@@ -302,13 +303,16 @@ static int add_watches_to_root(WatchfulMonitor *wm, const char *root) {
             path = watchful_path_create(entry->d_name, paths[i], false);
             if (NULL == path) goto error;
 
-            DIR *child_dir = opendir(path);
-            if (NULL == child_dir) {
+            bool is_dir = watchful_path_is_dir(path);
+
+            if (!is_dir) {
                 free(path);
                 path = NULL;
                 continue;
             }
-            closedir(child_dir);
+
+            path = watchful_path_add_sep(path);
+            if (NULL == path) goto error;
 
             if (watchful_monitor_excludes_path(wm, path)) {
                 free(path);

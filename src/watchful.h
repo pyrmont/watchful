@@ -131,6 +131,7 @@ extern WatchfulBackend watchful_inotify;
 
 /* Path Functions */
 char *watchful_path_create(const char *path, const char *prefix, bool is_dir);
+char *watchful_path_add_sep(char *path);
 bool watchful_path_is_dir(const char *path);
 bool watchful_path_is_prefixed(const char *path, const char *prefix);
 
