@@ -2,7 +2,7 @@
 (import ../wrappers/janet/watchful)
 
 
-(def tmp-root "tmp")
+(def tmp-root "tmp/")
 (def cwd (string (os/cwd) "/"))
 
 
@@ -27,7 +27,7 @@
 
 
 (defn- tmp-dir []
-  (def path (string tmp-root "/" (gensym)))
+  (def path (string tmp-root (gensym) "/"))
   (os/mkdir path)
   path)
 
@@ -49,20 +49,20 @@
   (def fiber (watchful/watch path f))
   (os/touch path)
   (def event-1 (ev/take channel))
-  (def expect-1 {:type :modified :at (event-1 :at) :path (string cwd path "/")})
+  (def expect-1 {:type :modified :at (event-1 :at) :path (string cwd path)})
   (is (= expect-1 event-1))
   (os/touch path)
   (def event-2 (ev/take channel))
-  (def expect-2 {:type :modified :at (event-2 :at) :path (string cwd path "/")})
+  (def expect-2 {:type :modified :at (event-2 :at) :path (string cwd path)})
   (is (= expect-2 event-2))
   (watchful/cancel fiber))
 
 
 (deftest watch-with-ignored-paths
   (def path (tmp-dir))
-  (def ignored-file-1 (string path "/" (gensym) "ignored"))
-  (def ignored-file-2 (string path "/" (gensym) "ignored"))
-  (def noticed-file (string path "/" (gensym) "not-ignored"))
+  (def ignored-file-1 (string path (gensym) "ignored"))
+  (def ignored-file-2 (string path (gensym) "ignored"))
+  (def noticed-file (string path (gensym) "not-ignored"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f nil {:ignored-paths [ignored-file-1 ignored-file-2]}))
@@ -76,7 +76,7 @@
 
 (deftest watch-with-ignored-events
   (def path (tmp-dir))
-  (def created-file (string path "/" (gensym) "created"))
+  (def created-file (string path (gensym) "created"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f nil {:ignored-events [:modified]}))
@@ -89,8 +89,8 @@
 
 (deftest watch-with-moved-file
   (def path (tmp-dir))
-  (def before-file (string path "/" (gensym) "before"))
-  (def after-file (string path "/" (gensym) "after"))
+  (def before-file (string path (gensym) "before"))
+  (def after-file (string path (gensym) "after"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f))
@@ -108,9 +108,9 @@
 
 (deftest watch-with-deleted-file
   (def path (tmp-dir))
-  (def deleted-file (string path "/" (gensym) "deleted"))
+  (def deleted-file (string path (gensym) "deleted"))
   (spit deleted-file "")
-  (def deleted-dir (string path "/" (gensym) "deleted"))
+  (def deleted-dir (string path (gensym) "deleted/"))
   (os/mkdir deleted-dir)
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
@@ -128,14 +128,14 @@
 
 (deftest watch-with-nested-dirs
   (def path (tmp-dir))
-  (def before-parent (string path "/before"))
+  (def before-parent (string path "before/"))
   (os/mkdir before-parent)
-  (def after-parent (string path "/after"))
+  (def after-parent (string path "after/"))
   (os/mkdir after-parent)
-  (def before-nested-dir (string before-parent "/moved"))
+  (def before-nested-dir (string before-parent "moved/"))
   (os/mkdir before-nested-dir)
-  (def after-nested-dir (string after-parent "/moved"))
-  (def created-file (string after-nested-dir "/" (gensym) "created"))
+  (def after-nested-dir (string after-parent "moved/"))
+  (def created-file (string after-nested-dir (gensym) "created"))
   (def channel (ev/chan 1))
   (defn f [e] (ev/give channel e))
   (def fiber (watchful/watch path f))

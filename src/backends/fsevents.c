@@ -27,25 +27,26 @@ static int timecmp(WatchfulTime *t1, WatchfulTime *t2) {
         return 0;
 }
 
-static bool is_historical_event(WatchfulMonitor *wm, char *path, int flag, int event) {
-    struct stat buf;
+static bool is_historical_event(WatchfulMonitor *wm, const char *path, int flag, int event) {
+    struct stat st;
 
     /* TODO: Consider handling of other events */
     if (event == WATCHFUL_EVENT_CREATED) {
         if (flag & kFSEventStreamEventFlagItemRemoved) return true;
         if (flag & kFSEventStreamEventFlagItemRenamed) return true;
 
-        stat(path, &buf);
-        if (timecmp(wm->start_time, &buf.st_birthtimespec) >= 0) return true;
+        int err = stat(path, &st);
+        if (err == -1) return false;
+        if (timecmp(wm->start_time, &st.st_birthtimespec) >= 0) return true;
 
         CFStringRef key = CFStringCreateWithCString(NULL, path, kCFStringEncodingUTF8);
         WatchfulTime *val = (WatchfulTime *)CFDictionaryGetValue(wm->watches, key);
-        if (NULL != val && timecmp(val, &buf.st_birthtimespec) >= 0) return true;
+        if (NULL != val && timecmp(val, &st.st_birthtimespec) >= 0) return true;
 
         WatchfulTime *old_val = val;
         val = malloc(sizeof(WatchfulTime));
-        val->tv_sec = buf.st_birthtimespec.tv_sec;
-        val->tv_nsec = buf.st_birthtimespec.tv_nsec;
+        val->tv_sec = st.st_birthtimespec.tv_sec;
+        val->tv_nsec = st.st_birthtimespec.tv_nsec;
         CFDictionarySetValue(wm->watches, key, val);
 
         free(old_val);
@@ -63,6 +64,19 @@ static bool is_historical_event(WatchfulMonitor *wm, char *path, int flag, int e
     }
 }
 
+static int translate_event(WatchfulMonitor *wm, const char *path, int flag) {
+    return ((flag & kFSEventStreamEventFlagItemCreated) &&
+            !is_historical_event(wm, path, flag, WATCHFUL_EVENT_CREATED))  ? WATCHFUL_EVENT_CREATED :
+           ((flag & kFSEventStreamEventFlagItemRemoved) &&
+            !is_historical_event(wm, path, flag, WATCHFUL_EVENT_DELETED))  ? WATCHFUL_EVENT_DELETED :
+           ((flag & kFSEventStreamEventFlagItemRenamed) &&
+            !is_historical_event(wm, path, flag, WATCHFUL_EVENT_RENAMED))  ? WATCHFUL_EVENT_RENAMED :
+           (((flag & kFSEventStreamEventFlagItemModified) ||
+             (flag & kFSEventStreamEventFlagItemXattrMod) ||
+             (flag & kFSEventStreamEventFlagItemInodeMetaMod)) &&
+            !is_historical_event(wm, path, flag, WATCHFUL_EVENT_MODIFIED)) ? WATCHFUL_EVENT_MODIFIED : 0;
+}
+
 static void handle_event(
     ConstFSEventStreamRef streamRef,
     void *clientCallBackInfo,
@@ -71,7 +85,7 @@ static void handle_event(
     const FSEventStreamEventFlags eventFlags[],
     const FSEventStreamEventId eventIds[])
 {
-    char **paths = eventPaths;
+    const char **paths = eventPaths;
     WatchfulMonitor *wm = clientCallBackInfo;
 
     char *path = NULL;
@@ -79,49 +93,39 @@ static void handle_event(
     WatchfulEvent *event = NULL;
 
     for (size_t i = 0; i < numEvents; i++) {
-        int event_type = 0;
+        /* 1. Set event_type for this event. */
+        int event_type = translate_event(wm, paths[i], eventFlags[i]);
 
-        if ((eventFlags[i] & kFSEventStreamEventFlagItemCreated) &&
-            !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_CREATED))
-            event_type = event_type | WATCHFUL_EVENT_CREATED;
-        else if ((eventFlags[i] & kFSEventStreamEventFlagItemRemoved) &&
-                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_DELETED))
-            event_type = event_type | WATCHFUL_EVENT_DELETED;
-        else if ((eventFlags[i] & kFSEventStreamEventFlagItemRenamed) &&
-                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_RENAMED))
-            event_type = event_type | WATCHFUL_EVENT_RENAMED;
-        else if (((eventFlags[i] & kFSEventStreamEventFlagItemModified) ||
-                  (eventFlags[i] & kFSEventStreamEventFlagItemXattrMod) ||
-                  (eventFlags[i] & kFSEventStreamEventFlagItemInodeMetaMod)) &&
-                 !is_historical_event(wm, paths[i], eventFlags[i], WATCHFUL_EVENT_MODIFIED))
-            event_type = event_type | WATCHFUL_EVENT_MODIFIED;
-
+        /* 2. If event is excluded, skip. */
         if (!(event_type && (wm->events & event_type))) continue;
 
-        if (event_type == WATCHFUL_EVENT_RENAMED && NULL == old_path) {
-            old_path = watchful_path_create(paths[i], NULL, eventFlags[i] & kFSEventStreamEventFlagItemIsDir);;
-            if (NULL == old_path) goto error;
-            continue;
-        }
+        /* 3. Create absolute path for file. */
+        path = watchful_path_create(paths[i], NULL, eventFlags[i] & kFSEventStreamEventFlagItemIsDir);
+        if (NULL == path) goto error;
 
-        if (!watchful_monitor_excludes_path(wm, paths[i])) {
-            path = watchful_path_create(paths[i], NULL, eventFlags[i] & kFSEventStreamEventFlagItemIsDir);
-            if (NULL == path) goto error;
+        /* 4. If file path is not excluded. */
+        if (!watchful_monitor_excludes_path(wm, path)) {
+            /* 5. Check if file path is the previous name. */
+            if (event_type == WATCHFUL_EVENT_RENAMED && access(path, F_OK) != 0) {
+                old_path = path;
+                path = NULL;
+                continue;
+            }
+
             event = malloc(sizeof(WatchfulEvent));
             if (NULL == event) goto error;
             event->type = event_type;
+            event->at = time(NULL);
             event->path = path;
             event->old_path = old_path;
             wm->callback(event, wm->callback_info);
         }
 
+        /* 6. Free memory. */
         free(path);
         path = NULL;
         free(old_path);
         old_path = NULL;
-        event->type = 0;
-        event->path = NULL;
-        event->old_path = NULL;
         free(event);
         event = NULL;
     }
@@ -241,8 +245,8 @@ static int start_loop(WatchfulMonitor *wm) {
 }
 
 static int remove_watches(WatchfulMonitor *wm) {
-    if (NULL == wm) return 1;
-    if (NULL == wm->watches) return 1;
+    /* if (NULL == wm) return 1; */
+    /* if (NULL == wm->watches) return 1; */
 
     CFIndex count = CFDictionaryGetCount(wm->watches);
     WatchfulTime **times = malloc(sizeof(WatchfulTime *) * count);

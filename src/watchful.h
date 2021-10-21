@@ -22,11 +22,11 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifdef INOTIFY
 #include <dirent.h>
 #include <signal.h>
-#include <unistd.h>
 #include <sys/inotify.h>
 #include <sys/select.h>
 #include <sys/signalfd.h>

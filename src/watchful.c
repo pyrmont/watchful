@@ -73,7 +73,7 @@ char *watchful_path_create(const char *path, const char *prefix, bool is_dir) {
 bool watchful_path_is_dir(const char *path) {
     struct stat st;
     int error = stat(path, &st);
-    if (error) return false;
+    if (error == -1) return false;
     return S_ISDIR(st.st_mode);
 }
 
