@@ -10,7 +10,8 @@
 
 
 (defn start [monitor]
-  (when (_watchful/watching? monitor) (error "monitor already watching"))
+  (when (_watchful/watching? monitor)
+    (error "monitor already watching"))
   (def events (ev/thread-chan 10))
   (defn give [event]
     (protect (ev/give events event)))
@@ -19,7 +20,8 @@
 
 
 (defn stop [monitor]
-  (unless (_watchful/watching? monitor) (error "monitor already stopped"))
+  (unless (_watchful/watching? monitor)
+    (error "monitor already stopped"))
   (_watchful/stop monitor))
 
 
