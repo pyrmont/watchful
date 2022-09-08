@@ -104,21 +104,6 @@ typedef struct WatchfulMonitor {
 #endif
 } WatchfulMonitor;
 
-/* typedef struct WatchfulStream { */
-/*   WatchfulMonitor *wm; */
-/*   WatchfulThread thread; */
-/*   int (*callback)(WatchfulEvent *event); */
-/*   double delay; */
-/* #ifdef INOTIFY */
-/*   int fd; */
-/*   size_t watches_len; */
-/*   WatchfulWatch **watches; */
-/* #elif FSE */
-/*   FSEventStreamRef ref; */
-/*   CFRunLoopRef loop; */
-/* #endif */
-/* } WatchfulStream; */
-
 /* Externs */
 extern WatchfulBackend watchful_fsevents;
 extern WatchfulBackend watchful_inotify;
