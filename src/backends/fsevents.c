@@ -85,6 +85,9 @@ static void handle_event(
     const FSEventStreamEventFlags eventFlags[],
     const FSEventStreamEventId eventIds[])
 {
+    (void)streamRef; /* unused */
+    (void)eventIds; /* unused */
+
     const char **paths = eventPaths;
     WatchfulMonitor *wm = clientCallBackInfo;
 
